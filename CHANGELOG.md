@@ -6,6 +6,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.20] - 2026-05-18
+
+### Fixed
+
+- **Text-mode transcript selection now stays highlighted when focus moves into the Text template / Sponsor / Reason fields.** The browser clears the native Selection when focus moves out of the transcript region, which made the highlight disappear the moment the user clicked into the textarea below it. `TextSelectionPanel.tsx` now derives a `selectedRange` from `adStart`/`adEnd` and applies a `bg-primary/30` class to the in-range word spans, so the visual highlight survives focus changes, re-renders, and audio-mode pin drags.
+- **Active text-selection drag is now visible on mobile (and more visible in dark mode generally).** The transcript container previously fell back to the browser default `::selection` color, which is near-invisible against a dark background on iOS Safari and Chrome Android. Added `selection:bg-primary/50 selection:text-primary-foreground` to the transcript root so the active drag color stands out during selection.
+
+## [2.4.19] - 2026-05-18
+
+### Fixed
+
+- **Cancel/X on the Add-new-ad modal no longer reopens the Detected-ad modal underneath.** 2.2.6 added a `cameFromReviewRef` so that Cancel from create-mode would return the user to the review modal when create was entered via the in-modal `+ Add new ad` button. Users found the reappearing review modal more disruptive than helpful (the page-header path closed cleanly, but the in-modal path bounced them back into review). Both close paths now route to `onClose` and unmount the editor. Save still flips back to review via `handleCreateSubmit` so the user can keep working through a queue after committing an ad.
+
+## [2.4.18] - 2026-05-18
+
+### Added
+
+- **Text-mode ad creation in the Add-new-ad modal.** A toggle at the top of the modal switches between `By audio` (the existing waveform-pin flow) and `By text`. In text mode the modal renders the original transcript with word-level timestamps, a client-side search with `N of M` match navigation, and native browser text selection that resolves the highlighted range to exact Whisper word timings. The resolved bounds and selected text populate the existing template + adStart/adEnd state, so toggling back to audio mode keeps the work and the optional Reason field stays editable. Backend was already in place: `GET /feeds/<slug>/episodes/<id>/original-segments` returns word-level `words[]` per segment.
+- **Configurable detection-window geometry.** `window_size_seconds` and `window_overlap_seconds` are now tunables in Settings > LLM Tunables (defaults 600s / 180s, identical to prior behavior). Server-side bounds are size in `[120, 1800]` and overlap in `[0, 1770]`, with a cross-field validator that rejects overlap >= size. Lets small-context local LLM users shrink the window to fit. The two readers in `src/ad_detector/` resolve via `get_stage_tunable()` at call time so Settings UI changes take effect on the next episode without restart.
+- **Reset-to-default UI for every stage tunable.** A `Reset` link sits beside each numeric input in `StageTunablesSection.tsx`, including the new window inputs and the existing temperature / max-tokens / reasoning budget / reasoning effort controls. Disabled when the value already matches the default or when an env var has pinned it.
+- **Structural rate-limit detection and webhook event.** A new `EVENT_RATE_LIMIT_STRUCTURAL` webhook fires when a single LLM request's token count structurally exceeds the provider's per-minute cap (Groq free tier is the main triggering case). The retry loop in `src/utils/llm_call.py` short-circuits this case instead of consuming the full backoff budget, and the episode's `error_message` reports the limit, the requested count, and the two remedies (shrink the detection window in LLM Tunables, or change provider/tier).
+
+### Changed
+
+- **Renamed the settings section `LLM Tunables (per stage)` to `LLM Tunables`.** The window inputs are global, not per-stage; the old title no longer described the contents.
+
 ## [2.4.17] - 2026-05-17
 
 ### Fixed
