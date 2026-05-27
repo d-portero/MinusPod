@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "published_at": "2026-05-27T19:12:01Z",
+  "published_at": "2026-05-27T19:52:08Z",
   "vocabulary_version": 1,
   "patterns": [
     {
@@ -321,6 +321,158 @@
         "community_id": "9e83a5f6-097b-4378-8077-b9ccec49b389",
         "version": 1,
         "submitted_at": "2026-05-15T13:44:56.533543+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "30d6ba68-9293-4e7b-b536-adef664a5468",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Support for the show comes from Public, the investing platform that's available for us. We'll be right back. Generated assets are like ETFs with infinite possibilities, completely customizable and based on your thesis, not someone else's. Go to public.com slash podcast and earn an uncapped 1% bonus when you transfer your portfolio. That's public.com slash podcast. Paid for by Public Investing. Brokered services by Open to the Public Investing, Inc., Member FINRA and SIPC. Advisory services by Public Advisors, LLC, SEC Registered Advisor. Generated assets is an interactive analysis tool. Output is for informational purposes only and is not an investment recommendation or advice. Complete disclosures available at public.com slash disclosures.",
+        "intro_variants": [
+          "It screens thousands of stocks, builds a one-of-a-kind index, and lets you backtest it against the S&P 500. Then, you can invest in a few clicks.",
+          "It screens thousands of stocks, builds a one-of-a-kind index, and lets you backtest it against the S&P 500. Then you can invest in a few clicks.",
+          "Energy companies with high free cash flow to semiconductor suppliers growing revenue over 20 year over year You can literally type any prompt and put the AI to work It screens thousands of stocks builds a one of a kind index and lets you backtest it against the S 500 Then you can invest in a few clicks",
+          "Support for the show comes from Public, the investing platform that's available for us. We'll be right back.",
+          "Support for the show comes from Public, the investing platform for those who take it seriously. On Public, you can build a multi-asset portfolio of stocks, bonds, options, crypto, and now generated assets which allow you to turn any idea into an investable index with AI. It all starts with your prompt from renewable energy companies with high free cash flow to semiconductor suppliers growing revenue over 20% year over year. You can literally type any prompt and put the AI to work. It screens thousands of stocks, builds a one of a kind index and lets you back test it against the S&P 500. Then you can invest in a few clicks.",
+          "Support for the show comes from Public, the investing platform for those who take it seriously. On Public, you can build a multi-asset portfolio of stocks, bonds, options, crypto, and now generated assets, which allow you to turn any idea into an investable index with AI. It all starts with your prompt. From renewable energy companies with high free cash flow to semiconductor suppliers growing revenue over 20% year over year, you can literally type any prompt and put the AI to work. It screens thousands of stocks, builds a one-of-a-kind index, and builds a one-of-a-kind index. and lets you backtest it against the S&P 500. Then you can invest in a few clicks.",
+          "Support for the show comes from Public, the investing platform for those who take it seriously. On Public, you can build a multi-asset portfolio of stocks, bonds, options, crypto, and now generated assets, which allow you to turn any idea into an investable index with AI. It all starts with your prompt, from renewable energy companies with high free cash flow to semiconductor suppliers growing revenue over 20% year over year. You can literally type any prompt and put the AI to work. It screens thousands of stocks, builds a one-of-a-kind index, and lets you backtest it against the S&P. Then you can invest in a few clicks.",
+          "Support for the show comes from Public, the investing platform for those who take it seriously. On Public, you can build a multi-asset portfolio of stocks, bonds, options, crypto, and now generated assets, which allow you to turn any idea into an investable index with AI. It all starts with your prompt. From renewable energy companies with high free cash flow to semiconductor suppliers growing revenue over 20% year over year, you can literally type any prompt and put the AI to work. It screens thousands of stocks builds a one index and lets you backtest it against the S 500 Then you can invest in a few clicks"
+        ],
+        "outro_variants": [
+          "That's public.com slash podcast. Paid for by Public Investing. Brokered services by Open to the Public Investing, Inc., Member FINRA and SIPC. Advisory services by Public Advisors, LLC, SEC Registered Advisor. Generated Assets is an interactive analysis tool. Output is for informational purposes only and is not an investment recommendation or advice. Complete disclosures available at public.com slash disclosures.",
+          "That's public.com slash podcast. Paid for by Public Investing. Brokered services by Open to the Public Investing, Inc., Member FINRA and SIPC. Advisory services by Public Advisors, LLC, SEC Registered Advisor. Generated assets is an interactive analysis tool. Output is an interactive analysis tool.",
+          "That's public.com slash podcast. Paid for by Public Investing. Brokered services by Open to the Public Investing, Member FINRA and SIPC. Advisory services by Public Advisors, LLC, SEC Registered Advisor. Generated assets is an interactive analysis tool. Output is for informational purposes only and is not an investment recommendation or advice. Complete disclosures available at public.com slash discuss. Closures.",
+          "That public slash podcast Paid for by Public Investing Brokered services by Open to the Public Investing Inc Member FINRA and SIPC Advisory services by Public Advisors LLC SEC Registered Advisor Generated Assets is an interactive analysis tool Output is for informational purposes only and is not an investment recommendation or advice Complete disclosures available at public.com slash disclosures"
+        ],
+        "avg_duration": 113.94285714285716,
+        "sponsor": "Public.com",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "finance",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "30d6ba68-9293-4e7b-b536-adef664a5468",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "40e16c26-231d-4bb0-a5da-789e8917b198",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Virgin Voyages presents With Love from Bermuda. We didn't Uber to the airport. We didn't take our shoes off for security. We just sailed from New York. Now it's cocktails on deck, adults only everything, and waking up in warm pink sand paradise without flying there. No TSA, no chaos, just an epic winter escape. Award-winning kid-free cruises from Virgin Voyages. Now sailing from New York to Bermuda and beyond. Explore sailings at virginvoyages.com.",
+        "intro_variants": [
+          "Virgin Voyages presents With Love from Alaska. The scenery out here is unreal. Mountains, glaciers, waterfalls, the ship? Designed for panoramic views, which is why I'm pretending to be a wildlife photographer. I am not. Yesterday we were hiking and kayaking. Today, I'm watching for humpback whales. Anyway, wish you were here.",
+          "Virgin Voyages presents With Love from Bermuda. We didn't Uber to the airport. We didn't take our shoes off for security. We just sailed from New York. Now it's cocktails on deck, adults only everything, and waking up in warm pink sand paradise without flying there. No TSA, no chaos, just an epic winter escape.",
+          "Virgin Voyages presents With Love from Bermuda. We didn't Uber to the airport. We didn't take our shoes off for security. We just sailed from New York. Now it's cocktails on deck, adults only everything, and waking up in warm pink sand paradise without flying there. No TSA, no chaos, just an epic winter escape.",
+          "Virgin Voyages presents, with love from the Caribbean. Today was snorkeling. Tomorrow is poolside DJs. Tonight is dinner by chefs who take this very seriously. Also, no kids. At all. Which somehow makes everything better. Sorry you couldn't come. But also, you should fix that.",
+          "Virgin Voyages presents with love from the Caribbean. Today was snorkeling Tomorrow is poolside DJs Tonight is dinner by chefs who take this very seriously Also no kids at all which somehow makes everything better Sorry you couldn come But also you should fix that "
+        ],
+        "outro_variants": [
+          "A modern, award-winning, kid-free cruise from Virgin Voyages. Explore Caribbean sailings at virginvoyages.com.",
+          "A modern award kid cruise from Virgin Voyages Explore Caribbean sailings at virginvoyages",
+          "Award-winning, kid-free Alaskan cruises from Virgin Voyages with immersive shore excursions and zero kid energy. VirginVoyages.com",
+          "Award-winning kid-free cruises from Virgin Voyages. Now sailing from New York to Bermuda and beyond. Explore sailings at virginvoyages.com."
+        ],
+        "avg_duration": 113.94285714285716,
+        "sponsor": "Virgin Voyages",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "travel",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "40e16c26-231d-4bb0-a5da-789e8917b198",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "479f28c2-87b3-492c-8b84-869d0bd2cf2f",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Spring is all about fresh starts and getting a car should be no different. Meet FlexCar, a new way to get a car without the large down payments or dealership hassles. One simple monthly payment includes your car insurance, maintenance and more. Use code SPRING for $50 off your first month at FlexCar.com.",
+        "intro_variants": [
+          "Spring is all about fresh starts and getting a car should be no different."
+        ],
+        "outro_variants": [
+          "Use code SPRING for $50 off your first month at FlexCar.com."
+        ],
+        "avg_duration": 113.94285714285716,
+        "sponsor": "Flexcar",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "auto",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "479f28c2-87b3-492c-8b84-869d0bd2cf2f",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "c7df5360-546b-4114-9d51-ae2e63bf063d",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "With no fees or minimums on checking accounts, it's no wonder the Capital One bank guy is so passionate about banking with Capital One. If he were here, he wouldn't just tell you about no fees or minimums. He'd also talk about how most Capital One cafes are open seven days a week to assist with your banking needs. Yep, even on weekends. It's pretty much all he talks about, in a good way. What's in your wallet? Terms apply. See CapitalOne.com slash bank. Capital One N-A member FDIC.",
+        "intro_variants": [
+          "With no fees or minimums on checking accounts, it's no wonder the Capital One bank guy is so passionate about banking with Capital One. If he were here, he wouldn't just tell you about no fees or minimums. He'd also talk about how most Capital One cafes are open seven days a week to assist with your banking needs. Yep, even on weekends. It's pretty much all he talks about, in a good way."
+        ],
+        "outro_variants": [
+          "What's in your wallet? Terms apply. See CapitalOne.com slash bank. Capital One N-A member FDIC."
+        ],
+        "avg_duration": 113.94285714285716,
+        "sponsor": "Capital One",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "finance",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "c7df5360-546b-4114-9d51-ae2e63bf063d",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "f081026b-f9a5-459e-85dc-1c13430cc915",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Spectrum Business keep businesses of all sizes connected seamlessly with fast, reliable internet, advanced Wi-Fi, phone, TV, and mobile services. That's right. And Spectrum Business offers 100% U.S.-based customer support 24-7 to help you stay up and running. And they offer tailored connectivity solutions with packages built for your business budget. Yeah, so it's no wonder millions of business owners rely on Spectrum Business to keep them connected. Visit Spectrum.com slash business to learn more. Restrictions apply. Service is not available in all areas.",
+        "intro_variants": [
+          "Spectrum Business keep businesses of all sizes connected seamlessly with fast, reliable internet, advanced Wi-Fi, phone, TV, and mobile services. That's right. And Spectrum Business offers 100% U.S.-based customer support 24-7 to help you stay up and running. And they offer tailored connectivity solutions with packages built for your business budget."
+        ],
+        "outro_variants": [
+          "Yeah, so it's no wonder millions of business owners rely on Spectrum Business to keep them connected. Visit Spectrum.com slash business to learn more. Restrictions apply. Service is not available in all areas."
+        ],
+        "avg_duration": 113.94285714285716,
+        "sponsor": "Spectrum Business",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "telecom",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "f081026b-f9a5-459e-85dc-1c13430cc915",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
         "submitted_app_version": "unknown",
         "sponsor_match": "exact"
       }
