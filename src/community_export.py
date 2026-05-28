@@ -35,8 +35,10 @@ from utils.community_tags import (
     BUNDLE_VERSION,
     CONSUMER_EMAIL_DOMAINS,
     EMAIL_REGEX,
+    expected_filename,
     GITHUB_REPO,
     PHONE_REGEX,
+    app_version,
     is_tollfree,
     valid_tags,
 )
@@ -61,11 +63,6 @@ class ExportError(Exception):
         super().__init__('; '.join(reasons))
         self.reasons = reasons
 
-
-def _slugify(name: str) -> str:
-    """Lowercase, hyphenated, ASCII-safe slug."""
-    s = re.sub(r'[^a-z0-9]+', '-', name.lower())
-    return s.strip('-') or 'sponsor'
 
 
 def _strip_emails(text: str) -> str:
@@ -349,14 +346,6 @@ def _strip_metadata(pattern: Dict, sponsor_row: Dict) -> Dict:
     }
 
 
-def _app_version() -> str:
-    try:
-        from version import __version__
-        return __version__
-    except Exception:
-        return 'unknown'
-
-
 def build_export_payload(pattern: Dict, sponsors: List[Dict]) -> Dict:
     """Run the full pipeline and return the JSON payload + sponsor classification."""
     sponsor_id = pattern.get('sponsor_id')
@@ -376,7 +365,7 @@ def build_export_payload(pattern: Dict, sponsors: List[Dict]) -> Dict:
         'community_id': str(uuid.uuid4()),
         'version': 1,
         'submitted_at': datetime.now(timezone.utc).isoformat(),
-        'submitted_app_version': _app_version(),
+        'submitted_app_version': app_version(),
         'sponsor_match': sponsor_match,
     })
     return payload
@@ -389,9 +378,8 @@ def build_pr_url(payload: Dict) -> Tuple[str, str, bool]:
     still returned but it should NOT be opened -- the caller should offer the
     JSON file as a download instead.
     """
-    sponsor_slug = _slugify(payload.get('sponsor') or 'sponsor')
-    short_uuid = payload['community_id'].split('-')[0]
-    filename = f'{sponsor_slug}-{short_uuid}.json'
+    filename = expected_filename(payload.get('sponsor') or 'sponsor',
+                                payload['community_id'])
     body = json.dumps(payload, indent=2, ensure_ascii=False)
     encoded = urllib.parse.quote(body, safe='')
     url = PR_URL_TEMPLATE.format(
@@ -449,7 +437,7 @@ def build_bundle(pattern_ids: List[int], db) -> Tuple[Dict, List[Dict]]:
         'format': BUNDLE_FORMAT,
         'bundle_version': BUNDLE_VERSION,
         'submitted_at': datetime.now(timezone.utc).isoformat(),
-        'submitted_app_version': _app_version(),
+        'submitted_app_version': app_version(),
         'pattern_count': len(ready),
         'patterns': ready,
     }
