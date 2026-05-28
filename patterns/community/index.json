@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "published_at": "2026-05-27T19:52:08Z",
+  "published_at": "2026-05-28T21:37:12Z",
   "vocabulary_version": 1,
   "patterns": [
     {
@@ -326,6 +326,99 @@
       }
     },
     {
+      "community_id": "00ebc6f4-ecd4-4cd5-a92d-0dfe70c6e971",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "There's nowhere I wouldn't go to help someone customize and save on car insurance with Liberty Mutual, even if it means sitting front row at a comedy show. Hey everyone, check out this guy and his bird. What is this, your first date? Oh, no. We help people customize and save on car insurance with Liberty Mutual together. We're married. Me to a human, him to a bird. Yeah, the bird looks out of your league anyways. Get a quote at LibertyMutual.com or with your local agent.",
+        "intro_variants": [
+          "There's nowhere I wouldn't go to help someone customize and save on car insurance with Liberty Mutual, even if it means sitting front row at a comedy show."
+        ],
+        "outro_variants": [
+          "Get a quote at LibertyMutual.com or with your local agent.",
+          "and need at LibertyMutual.com. Liberty, Liberty, Liberty, Liberty."
+        ],
+        "avg_duration": null,
+        "sponsor": "Liberty Mutual",
+        "sponsor_aliases": [
+          "LibertyMutual"
+        ],
+        "sponsor_tags": [
+          "automotive",
+          "insurance",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "00ebc6f4-ecd4-4cd5-a92d-0dfe70c6e971",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "01fb210a-776f-4284-88b6-b3dbcb12afab",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "OnDeck is built to back small businesses like yours. Whether you're buying equipment, expanding your team, or bridging cash flow gaps, OnDeck's loans up to $400,000 make it happen fast. Rated A-plus by the Better Business Bureau, and earning thousands of five-star Trustpilot reviews, OnDeck delivers funding you can count on. Apply in minutes at OnDeck.com. Depending on certain loan attributes, your business loan may be issued by OnDeck or Celtic Bank. OnDeck does not lend in North Dakota all loans and amounts subject to lender approval.",
+        "intro_variants": [
+          "OnDeck is built to back small businesses like yours. Whether you're buying equipment, expanding your team or bridging cash flow gaps, OnDeck's loans up to $400,000 help make it happen fast.",
+          "OnDeck is built to back small businesses like yours. Whether you're buying equipment, expanding your team, or bridging cash flow gaps, OnDeck's loans up to $400,000 make it happen fast.",
+          "OnDeck is built to back small businesses like yours. Whether you're buying equipment, expanding your team, or bridging cash flow gaps, OnDeck's loans up to $400,000 help make it happen fast."
+        ],
+        "outro_variants": [
+          "Depending on certain loan attributes, your business loan may be issued by OnDeck or Celtic Bank. OnDeck does not lend in North Dakota all loans and amounts subject to lender approval.",
+          "by OnDeck or Celtic Bank. OnDeck does not lend in North Dakota. All loans and amounts subject to lender approval."
+        ],
+        "avg_duration": null,
+        "sponsor": "OnDeck",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "finance",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "01fb210a-776f-4284-88b6-b3dbcb12afab",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "07df78ed-9b7f-4600-a9b7-1aee45b5bfc7",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Shopify is the commerce platform behind millions of businesses around the world and 10% of all e-commerce in the US. Join them and turn those what-ifs into...with Shopify today. Sign up for your $1 per month trial today at Shopify.com slash Vox Business. Go to Shopify.com slash Vox Business. That's Shopify.com slash Vox Business.",
+        "intro_variants": [
+          "Shopify is the commerce platform behind millions of businesses around the world and 10% of all e-commerce in the US. Join them and turn those what-ifs into...with Shopify today.",
+          "Support for the show comes from Shopify",
+          "Starting something new like a brand new business isn just difficult it can be really intimidating You pouring time and energy into something that might not work but on the other hand what if it does work out"
+        ],
+        "outro_variants": [
+          "You can turn those what-ifs into ba-bam with Shopify today.",
+          "You can sign up for your $1 per month trial today at shopify.com. You can go to shopify.com. That's shopify.com. slash Explained.",
+          "Go to Shopify.com slash Vox Business. That's Shopify.com slash Vox Business."
+        ],
+        "avg_duration": null,
+        "sponsor": "Shopify",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "music",
+          "streaming",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "07df78ed-9b7f-4600-a9b7-1aee45b5bfc7",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
       "community_id": "30d6ba68-9293-4e7b-b536-adef664a5468",
       "version": 1,
       "data": {
@@ -356,6 +449,39 @@
         ],
         "source_language": null,
         "community_id": "30d6ba68-9293-4e7b-b536-adef664a5468",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "32ae2eaa-3148-4b7e-9d96-e7fc59576ed1",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "How is TD making banking more human? Easy. With less bank talk and more real talk. Less, your call is important to us, and more, how can we help? Less confusion, and more clarity. It's things like tapping your phone to use your TD card, and getting your paycheck two business days early. It's getting more of what you want, and less of what you don't. That's how TD's making banking more human. Are we human?",
+        "intro_variants": [
+          "How is TD making banking more human? Easy.",
+          "How is TD making banking more human Easy"
+        ],
+        "outro_variants": [
+          "That's how TD is making banking more human. Are we human?",
+          "That's how TD's making banking more human. Are we human?",
+          "That's how TD's making banking more human."
+        ],
+        "avg_duration": null,
+        "sponsor": "TD card",
+        "sponsor_aliases": [
+          "TD Bank",
+          "Toronto-Dominion Bank"
+        ],
+        "sponsor_tags": [
+          "finance",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "32ae2eaa-3148-4b7e-9d96-e7fc59576ed1",
         "version": 1,
         "submitted_at": "2026-05-27T02:31:11.364726+00:00",
         "submitted_app_version": "unknown",
@@ -424,6 +550,252 @@
       }
     },
     {
+      "community_id": "4c132f88-bb8b-47b6-8d74-b1c38c7c90f0",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Guys don't like talking about ED, but if something's been off in the bedroom, you're not alone, and you don't need to wait longer than you need to take action. Getting real treatment is simple, and through HIMSS, it's 100% online. At some point, you've gotta stop blaming stress, sleep, or just getting older. If bedroom performance is in question, it's probably crossed your mind to do something about it. The good news? You don't have to jump through hoops to fix it. HIMSS connects you with licensed healthcare providers online, giving you simple access to legitimate ED treatment options from home. No awkward appointments, no pharmacy lines. You just complete a simple online intake form and a provider will review your information and determine if treatment is right for you. If prescribed, your treatment ships directly to your door in discreet packaging. To get simple, online access to personalized, affordable care for ED, weight loss, and more, visit HEMS.com slash BTB. That's HEMS.com slash BTB for your free online visit. HEMS.com slash BTB. Prescription required. See website for details and important safety information. Sledenafil is the generic version of Viagra. Viagra is a registered trademark of Viatris, a Viatris Specialty LLC. HEMS is not affiliated with or endorsed by Viatris.",
+        "intro_variants": [
+          "Guys don't like talking about ED, but if something's been off in the bedroom, you're not alone, and you don't need to wait longer than you need to take action."
+        ],
+        "outro_variants": [
+          "Sledenafil is the generic version of Viagra. Viagra is a registered trademark of Viatris, a Viatris Specialty LLC. HEMS is not affiliated with or endorsed by Viatris.",
+          "To get simple, online access to personalized, affordable care for ED, weight loss, and more, visit HEMS.com"
+        ],
+        "avg_duration": null,
+        "sponsor": "Hims.com",
+        "sponsor_aliases": [
+          "Hems.com",
+          "Hers.com"
+        ],
+        "sponsor_tags": [
+          "health",
+          "supplements",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "4c132f88-bb8b-47b6-8d74-b1c38c7c90f0",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "54864633-2b13-4a78-9a5d-34a1619bd88b",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Support for today, Explained comes from BetterHelp. May is Mental Health Awareness Month. That's what May stands for. A reminder that whatever you're going through, you don't have to go through it alone. There's a therapist out there who's equipped to help you through it. You can give therapy a try. BetterHelp makes it simple to connect with a licensed therapist online by doing the initial matching work for you so you can focus on your therapy goals. You don't have to be on this journey alone. Find support and have someone with you in therapy. Listeners can get 10% off their first month at BetterHelp.com. slash explained. That's better, H-E-L-P dot com slash explained.",
+        "intro_variants": [
+          "Support for today, Explained comes from BetterHelp.",
+          "This show is sponsored by BetterHelp",
+          "This is a BetterHelp ad",
+          "May is Mental Health Awareness Month A reminder that whatever you going through you don have to do it alone",
+          "May is Mental Health Awareness Month and it a good reminder that whatever you going through you don have to go through it alone",
+          "May is Mental Health Awareness Month. That's what May stands for. A reminder that whatever you're going through, you don't have to go through it alone."
+        ],
+        "outro_variants": [
+          "You don't have to be on this journey alone. Find support and have someone with you in therapy.",
+          "Listeners can get 10% off their first month at BetterHelp.com. slash explained. That's better, H-E-L-P dot com slash explained.",
+          "sign up and get 10% off at betterhelp.com slash behind that's better help.com slash behind.",
+          "Sign up now and get 10% off at BetterHelp.com. That's BetterHelp.com."
+        ],
+        "avg_duration": null,
+        "sponsor": "BetterHelp",
+        "sponsor_aliases": [
+          "Better Help"
+        ],
+        "sponsor_tags": [
+          "health",
+          "mental_health",
+          "personal_care",
+          "self_improvement",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "54864633-2b13-4a78-9a5d-34a1619bd88b",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "56c150bb-c761-4025-bacb-85a1f5e39e64",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Want to be a star? No problem! Anyone can shine on TikTok! Post your first video today! Real life, real story, real you. Download TikTok and get started!",
+        "intro_variants": [
+          "Want to be a star? No problem! Anyone can shine on TikTok!"
+        ],
+        "outro_variants": [
+          "Download TikTok and get started!"
+        ],
+        "avg_duration": null,
+        "sponsor": "TikTok",
+        "sponsor_aliases": [
+          "Tik Tok"
+        ],
+        "sponsor_tags": [
+          "comedy",
+          "music",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "56c150bb-c761-4025-bacb-85a1f5e39e64",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "61b7f12f-3bb3-4e80-b6c2-a87103c00743",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "The wait is over. Live table games have arrived in New York City. Experience Blackjack, Baccarat, Crabs and Roulette 24-7 only at Resorts World New York City. Gambling problem? Call 877-8HOPE-NY or text HOPE-NY-467-369.",
+        "intro_variants": [
+          "The wait is over. Live table games have arrived in New York City. Experience Blackjack, Baccarat, Crabs and Roulette 24-7 only at Resorts World New York City.",
+          "The wait is over. Live table games have arrived in New York City. Experience blackjack, baccara, crabs and roulette 24-7 only at Resorts World New York City."
+        ],
+        "outro_variants": [
+          "Gambling problem? Call 877-8HOPE-NY or text HOPE-NY-467-369.",
+          "Gambling problem call 877-8HOPE-NY or text HOPE-NY-467-369. Must be 21 or older to gamble. Standard message is applied."
+        ],
+        "avg_duration": null,
+        "sponsor": "Resorts World",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "gambling",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "61b7f12f-3bb3-4e80-b6c2-a87103c00743",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "645e026a-7fb2-4645-8a9e-42570d74d193",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Support for the show comes from Amazon. There are the things you can plan for. A first birthday party, a movie marathon, a renter-friendly bathroom reno. And then there are the things you can never plan for. A surprise rainstorm, a Blu-ray player calling it quits, stick-on tiles that looked way better on the package. For all things planned and unplanned, Amazon has you covered. You'll find low prices on everyday essentials and last-minute lifesavers. Shop Amazon and save on essentials. Save the everyday.",
+        "intro_variants": [
+          "Support for the show comes from Amazon.",
+          "There are the things you can plan for. A first birthday party, a movie marathon, a renter-friendly bathroom reno."
+        ],
+        "outro_variants": [
+          "Shop Amazon and save on essentials. Save the everyday."
+        ],
+        "avg_duration": null,
+        "sponsor": "Amazon",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "645e026a-7fb2-4645-8a9e-42570d74d193",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "7928fd80-cb24-491b-a5e5-f908f0aa2f34",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "This is Jana Kramer from Wind Down with Jana Kramer. So why do they call it a dishwasher? Well, don't worry. It's not a trick question or anything. It's just because it washes dishes. If the filter and the dishwasher itself are dirty, those dishes aren't actually getting clean. That's why you need Cascade Platinum Plus. Powered by two times the cleaning power of Dawn, Cascade Platinum Plus doesn't just remove 100% of grease and residue from dishes. It cleans your dishwasher and filter too. So you get clean dishes and a dishwasher that keeps washing. Just scrape, load and done. Find Cascade Platinum Plus at your local retailer.",
+        "intro_variants": [
+          "This is Jana Kramer from Wind Down with Jana Kramer. So why do they call it a dishwasher? Well, don't worry."
+        ],
+        "outro_variants": [
+          "So you get clean dishes and a dishwasher that keeps washing. Just scrape, load, and done.",
+          "Find Cascade Platinum Plus at your local retailer."
+        ],
+        "avg_duration": null,
+        "sponsor": "Cascade Platinum",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "home_goods",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "7928fd80-cb24-491b-a5e5-f908f0aa2f34",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "7e4d1625-23ac-4bf2-b30d-233539fceab9",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Security program on spreadsheets, new regulations piling up, and audit dread? It's time for Vanta. Vanta automates security and compliance, brings evidence into one place, and cuts audit prep by 82%. Less manual work, clearer visibility, faster deals, zero chaos. Call it compliance, or call it compliance. Get it? Join the 15,000 companies using Vanta to prove trust. Go to V-A-N-T-A dot com slash com",
+        "intro_variants": [
+          "Security program on spreadsheets, new regulations piling up, and audit dread? It's time for Vanta. Vanta automates security and compliance, brings evidence into one place, and cuts audit prep by 82%. Less manual work, clearer visibility, faster deals, zero chaos. Call it compliance, or call it compliance. Get it?"
+        ],
+        "outro_variants": [
+          "Join the 15,000 companies using Vanta to prove trust. Go to V-A-N-T-A dot com slash com"
+        ],
+        "avg_duration": null,
+        "sponsor": "Vanta",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "security",
+          "technology",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "7e4d1625-23ac-4bf2-b30d-233539fceab9",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "919a1600-268d-4f93-9ae1-73db5f3dab1f",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Gold Days at Grubhub Plus is officially here. We're talking Grubhub's best offers of the year all month long. It's the best time to order, but the worst time to have friends over, because when the deals are this good, everyone's going to want to bite. Not a member? Join now for just 99 cents a month for your first six months. You'll enjoy $0 delivery fees and lower service fees on eligible orders. Sign up now at grubhub.com slash plus slash gold. Terms apply.",
+        "intro_variants": [
+          "Gold Days at Grubhub Plus is officially here. We're talking Grubhub's best offers of the year all month long.",
+          "Listen up! Gold Days at Grubhub Plus is officially here. We're talking Grubhub's best offers of the year, all month long.",
+          "Listen up Gold Days at Grubhub Plus is officially here We talking Grubhub best offers of the year all month long",
+          "Gold Days at Grubhub Plus is officially here. We're talking Grubhub's best offers of the year, all month long."
+        ],
+        "outro_variants": [
+          "Sign up now at grubhub.com slash plus slash gold. Terms apply."
+        ],
+        "avg_duration": null,
+        "sponsor": "Grubhub",
+        "sponsor_aliases": [
+          "Grub Hub"
+        ],
+        "sponsor_tags": [
+          "food",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "919a1600-268d-4f93-9ae1-73db5f3dab1f",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
       "community_id": "c7df5360-546b-4114-9d51-ae2e63bf063d",
       "version": 1,
       "data": {
@@ -444,6 +816,92 @@
         ],
         "source_language": null,
         "community_id": "c7df5360-546b-4114-9d51-ae2e63bf063d",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "ca6c0db7-f959-4dcb-9412-e736bf3a16e5",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Here's the thing about bad cholesterol. It can silently build up in your arteries over time. High bad cholesterol may increase your risk of heart attack or stroke. Is your bad cholesterol low enough? Talk to your doctor about setting a goal to help lower your bad cholesterol and reduce your risk of heart attack or stroke. There's more to know about bad cholesterol. Learn more about the risks at badcholesterol.com. Brought to you by Merck.",
+        "intro_variants": [
+          "Here's the thing about bad cholesterol. It can silently build up in your arteries over time. High bad cholesterol may increase your risk of heart attack or stroke."
+        ],
+        "outro_variants": [
+          "Learn more about the risks at badcholesterol.com. Brought to you by Merck.",
+          "There's more to know about bad cholesterol."
+        ],
+        "avg_duration": null,
+        "sponsor": "badcholesterol.com",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "health",
+          "supplements",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "ca6c0db7-f959-4dcb-9412-e736bf3a16e5",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "db8638e8-45b8-4581-81c0-b8837aedfd07",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "Spring styles are at Nordstrom Rack stores now, and they're up to 60% off. Stock up and save on Rag & Bone, Madewell, Vince, All Saints, and more of your favorites. How did I not know Rack has Adidas? Why do we rack? For the hottest deals. Just so many good brands. Join the Nordiclub to unlock exclusive discounts, shop new arrivals first, and more. Plus, buy online and pick up at your favorite Rack store for free. Great brands, great prices. That's why you rack.",
+        "intro_variants": [
+          "Spring styles are at Nordstrom Rack stores now, and they're up to 60% off.",
+          "Stock up and save on Rag & Bone, Madewell, Vince, All Saints, and more of your favorites."
+        ],
+        "outro_variants": [
+          "Great brands, great prices. That's why you rack."
+        ],
+        "avg_duration": null,
+        "sponsor": "Nordstrom Rack",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "home_goods",
+          "kids_family",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "db8638e8-45b8-4581-81c0-b8837aedfd07",
+        "version": 1,
+        "submitted_at": "2026-05-27T02:31:11.364726+00:00",
+        "submitted_app_version": "unknown",
+        "sponsor_match": "exact"
+      }
+    },
+    {
+      "community_id": "dcb5d11b-7b5b-4024-bc58-3c522400ba5f",
+      "version": 1,
+      "data": {
+        "scope": "global",
+        "text_template": "This message comes from Betterment. Betterment's Dan Egan talks about tax loss harvesting. Tax loss harvesting is a tax management strategy. When you have a position that's gone down over time, we intentionally sell out of it to realize a loss, which we then say to the IRS, hey, we lost money. You get to use that to offset your ordinary income every year, decreasing your tax burden. Investing involves risk. Performance not guaranteed. Betterment does not offer tax advice. TLH may not be suitable for all customers. Learn more at betterment.com slash TLH-terms.",
+        "intro_variants": [
+          "This message comes from Betterment.",
+          "Betterment's Dan Egan talks about tax loss harvesting. Tax loss harvesting is a tax management strategy."
+        ],
+        "outro_variants": [
+          "Learn more at betterment.com slash TLH-terms."
+        ],
+        "avg_duration": null,
+        "sponsor": "Betterment",
+        "sponsor_aliases": [],
+        "sponsor_tags": [
+          "finance",
+          "universal"
+        ],
+        "source_language": null,
+        "community_id": "dcb5d11b-7b5b-4024-bc58-3c522400ba5f",
         "version": 1,
         "submitted_at": "2026-05-27T02:31:11.364726+00:00",
         "submitted_app_version": "unknown",
