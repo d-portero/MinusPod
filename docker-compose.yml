@@ -108,6 +108,15 @@ services:
       - "no-new-privileges:true"
     cap_drop:
       - ALL
+    cap_add:
+      # The entrypoint chowns the data volume and drops root via setpriv, which
+      # needs these caps; under a bare cap_drop: ALL it crash-loops. Omit this
+      # block if you set `user:` above (the entrypoint then needs no caps).
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
     # Uncomment if using the wrapper service
     # depends_on:
     #   - claude-wrapper

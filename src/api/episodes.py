@@ -437,7 +437,8 @@ def reprocess_episode(slug, episode_id):
         return error_response('Podcast not found', 404)
 
     try:
-        storage.delete_processed_file(slug, episode_id)
+        # Keep existing audio: reprocessing writes a new versioned file and
+        # prunes the old one only after it's durable (orchestration-5).
         db.clear_episode_details(slug, episode_id)
 
         # Mark as user-initiated so the background drainer honors it
@@ -641,10 +642,7 @@ def reprocess_all_episodes(slug):
             continue
 
         try:
-            # Delete processed audio file
-            storage.delete_processed_file(slug, episode_id)
-
-            # Clear episode details from database
+            # Keep existing audio until the new version is durable (orchestration-5).
             db.clear_episode_details(slug, episode_id)
 
             # Reset status to pending with reprocess mode for priority queue
@@ -740,7 +738,7 @@ def bulk_episode_action(slug):
                 if not episode or episode.get('status') not in ('processed', 'failed', 'permanently_failed'):
                     skipped += 1
                     continue
-                storage.delete_processed_file(slug, episode_id)
+                # Keep existing audio until the new version is durable (orchestration-5).
                 eligible_ids.append(episode_id)
             except Exception as e:
                 logger.error(f"Bulk action error for {slug}:{episode_id}: {e}")
@@ -1061,8 +1059,8 @@ def reprocess_episode_with_mode(slug, episode_id):
             error_message=None
         )
 
-        # 2. Clear cached data
-        storage.delete_processed_file(slug, episode_id)
+        # 2. Clear cached detection data; keep the processed audio until the new
+        # version is durable (orchestration-5).
         db.clear_episode_details(slug, episode_id)
 
         # 3. Get episode metadata for processing

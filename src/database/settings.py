@@ -175,15 +175,22 @@ class SettingsMixin:
             return None
 
     def set_secret(self, key: str, plaintext: str):
-        """Encrypt and store a secret. Requires provider crypto to be available.
-
-        No-ops through ``is_ciphertext`` so a request body that replays a
-        previously-emitted ciphertext (e.g. a UI round-trip with a masked
-        field) does not get double-wrapped.
-        """
+        """Encrypt and store a secret. An enc:v1: input (UI round-trip of a
+        masked field) is kept verbatim only if it decrypts under the current DEK;
+        otherwise it's treated as plaintext, so a bogus envelope can't be stored
+        as an undecryptable secret (creds-3)."""
         if is_ciphertext(plaintext):
-            self.set_setting(key, plaintext)
-            return
+            try:
+                decrypt(self, plaintext)  # verify it round-trips under our DEK
+                self.set_setting(key, plaintext)
+                return
+            except CryptoUnavailableError:
+                # Crypto not configured; can't verify or re-encrypt. Preserve
+                # the legacy behavior of storing the envelope verbatim.
+                self.set_setting(key, plaintext)
+                return
+            except Exception:
+                logger.warning("set_secret: enc:v1: value did not decrypt; treating as plaintext")
         self.set_setting(key, encrypt(self, plaintext))
 
     def clear_secret(self, key: str):

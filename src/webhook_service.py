@@ -155,8 +155,15 @@ def _prepare_and_dispatch(webhook_config, context, add_test_flag=False,
         try:
             body_str = _render_template(template_str, context)
         except TemplateError as exc:
-            logger.error("Jinja2 render error for webhook %s, skipping: %s", safe_url_for_log(url), exc)
-            return None
+            # Custom templates referencing episode/podcast fields raise on alert
+            # events lacking them; fall back to the default payload so alerts
+            # aren't silently dropped (webhooks-misc-2).
+            logger.warning(
+                "Jinja2 render error for webhook %s; falling back to the default "
+                "JSON payload so the event is not dropped: %s",
+                safe_url_for_log(url), exc,
+            )
+            body_str = json.dumps(dict(context))
     else:
         payload = dict(context)
         body_str = json.dumps(payload)
