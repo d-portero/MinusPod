@@ -70,8 +70,6 @@ Or browse the [full docs index](docs/README.md).
 
 This tool is for personal use only. Only use it with podcasts you have permission to modify or where such modification is permitted under applicable laws. Respect content creators and their terms of service.
 
-**LLM accuracy notice:** Detection accuracy depends heavily on the model. The [offline benchmark](benchmarks/llm/) ran 32 cloud models over a 7-episode corpus and got F1 from 0.00 to 0.65. The top-scoring model is not a Claude variant. Local Ollama runs are not in the benchmark yet. See [Cloud vs. Local: What Changes](docs/llm-providers.md#cloud-vs-local-what-changes) and the [latest report](benchmarks/llm/results/report.md) for the full numbers.
-
 ## License
 
 MIT
