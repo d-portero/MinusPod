@@ -438,6 +438,30 @@ class AdReviewer:
                 f"{new_start:.1f}-{new_end:.1f} to "
                 f"{clamped_start:.1f}-{clamped_end:.1f} (cap {max_shift}s)"
             )
+
+        # A merged ad's [start, end] is the union of multiple independently
+        # confirmed sub-ads. Every merge that joins NON-overlapping spans
+        # (adjacent distinct ads, or same-sponsor fragments) sets the canonical
+        # merged_distinct_ads flag: _merge_close_ads, merge_same_sponsor_ads,
+        # and the gap branch of deduplicate_window_ads / _merge_detection_results.
+        # The reviewer refines boundaries; it must not pull one inward and
+        # silently drop a still-confirmed sub-ad. Allow outward growth
+        # (leading/trailing CTA), forbid inward shrink.
+        #
+        # Overlap-based dedup (the same ad re-detected across windows/stages)
+        # does NOT set the flag, so ordinary single ads still tighten normally.
+        if ad.get('merged_distinct_ads'):
+            floor_start = min(clamped_start, original_start)
+            floor_end = max(clamped_end, original_end)
+            if floor_start != clamped_start or floor_end != clamped_end:
+                logger.info(
+                    f"[{slug}:{episode_id}] Reviewer inward shrink blocked on "
+                    f"merged ad @ {original_start:.1f}-{original_end:.1f}s: "
+                    f"{clamped_start:.1f}-{clamped_end:.1f} -> "
+                    f"{floor_start:.1f}-{floor_end:.1f} (expand-only)"
+                )
+            clamped_start, clamped_end = floor_start, floor_end
+
         if clamped_end <= clamped_start:
             clamped_start, clamped_end = original_start, original_end
 

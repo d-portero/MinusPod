@@ -3,12 +3,17 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import threading
 import time
 
 import requests
 import requests.exceptions
 
+from ad_detector import (
+    refine_ad_boundaries, snap_early_ads_to_zero, merge_same_sponsor_ads,
+    extend_ad_boundaries_by_content,
+)
 from ad_reviewer import (
     AdReviewer, ReviewVerdict, split_resurrection_pool,
 )
@@ -114,11 +119,13 @@ def is_transient_error(error: Exception) -> bool:
     if any(pattern in error_msg for pattern in transient_patterns):
         return True
 
-    # Permanent content/auth errors
+    # Permanent content/auth errors. 404 / "not found" is deliberately absent:
+    # a freshly published episode 404s briefly while the host provisions the
+    # media URL, so it is transient (the retry cap still fails a dead link).
     permanent_patterns = [
         'invalid audio', 'unsupported format', 'corrupt',
-        'authentication', 'unauthorized', 'forbidden', 'not found',
-        '400 ', '401 ', '403 ', '404 ',
+        'authentication', 'unauthorized', 'forbidden',
+        '400 ', '401 ', '403 ',
     ]
     if any(pattern in error_msg for pattern in permanent_patterns):
         return False
@@ -217,20 +224,45 @@ def _download_and_transcribe(slug, episode_id, episode_url, podcast_name):
     transcript_text = storage.get_transcript(slug, episode_id)
 
     if transcript_text:
-        audio_logger.info(f"[{slug}:{episode_id}] Found existing transcript in database")
-        segments = parse_transcript_segments(transcript_text)
-
+        # Prefer the saved whisper segments (with word-level timestamps) over
+        # re-parsing the transcript text. parse_transcript_segments drops the
+        # word timing that boundary refinement and detection rely on, which
+        # measurably weakened first-pass detection in LLM-only mode (issue #349).
+        # Fall back to the text parse if the original segments were never saved.
+        segments = db.get_original_segments(slug, episode_id)
         if segments:
-            duration_min = segments[-1]['end'] / 60
-            audio_logger.info(f"[{slug}:{episode_id}] Loaded {len(segments)} segments, {duration_min:.1f} min")
+            audio_logger.info(
+                f"[{slug}:{episode_id}] Reusing {len(segments)} saved whisper segments (word-level)")
+        else:
+            segments = parse_transcript_segments(transcript_text)
 
-        available, cdn_error = transcriber.check_audio_availability(episode_url)
-        if not available:
-            raise Exception(f"CDN not ready: {cdn_error}")
+    if segments:
+        # Existing usable transcript: reuse it and skip transcription. A
+        # transcript that yields no segments falls through to a fresh
+        # transcription below rather than proceeding with nothing.
+        duration_min = segments[-1]['end'] / 60
+        audio_logger.info(
+            f"[{slug}:{episode_id}] Found existing transcript: "
+            f"{len(segments)} segments, {duration_min:.1f} min")
 
-        audio_path = transcriber.download_audio(episode_url)
-        if not audio_path:
-            raise Exception("Failed to download audio")
+        # Reuse the retained original audio instead of re-downloading from the
+        # CDN when we kept it (issue #349 LLM-only reprocess). Copy it to a temp
+        # working file so the retain-move and cleanup-unlink later in
+        # process_episode operate on the copy, never on the retained original.
+        original_path = storage.get_original_path(slug, episode_id)
+        if original_path and os.path.exists(original_path):
+            fd, audio_path = tempfile.mkstemp(suffix='.mp3')
+            os.close(fd)
+            shutil.copyfile(original_path, audio_path)
+            audio_logger.info(f"[{slug}:{episode_id}] Reusing retained original audio (skipped download)")
+        else:
+            available, cdn_error = transcriber.check_audio_availability(episode_url)
+            if not available:
+                raise Exception(f"CDN not ready: {cdn_error}")
+
+            audio_path = transcriber.download_audio(episode_url)
+            if not audio_path:
+                raise Exception("Failed to download audio")
     else:
         available, cdn_error = transcriber.check_audio_availability(episode_url)
         if not available:
@@ -363,7 +395,6 @@ def _setting_float(db, key: str, default: float) -> float:
 
 def _refine_boundaries(all_ads, segments):
     """Apply the four-step ad-boundary refinement pipeline. Returns updated list."""
-    from ad_detector import refine_ad_boundaries, snap_early_ads_to_zero, merge_same_sponsor_ads, extend_ad_boundaries_by_content
     if all_ads and segments:
         all_ads = refine_ad_boundaries(all_ads, segments)
     if all_ads and segments:
@@ -803,6 +834,70 @@ def _run_ad_reviewer(slug, episode_id, podcast_id, ads_to_remove,
     return new_ads_to_remove, all_ads_with_validation
 
 
+def _complete_cut_tails(slug, episode_id, ads_to_remove, all_ads_with_validation,
+                        segments):
+    """Re-run content-based end extension as the last step before cutting.
+
+    This sweep exists to undo reviewer end-pullbacks: the reviewer can pull a
+    cut's end back to the detector boundary, and the pre-reviewer extension
+    pass in _refine_boundaries never sees that. Without the reviewer enabled,
+    _refine_boundaries already extended these ends and a second pass would
+    just compound the extension window, so the sweep is gated on the reviewer.
+    End-only: starts don't drift short.
+
+    Mutates matching ``all_ads_with_validation`` entries in place and re-saves
+    combined ads when anything changed. Returns the (possibly extended) cut list.
+    """
+    if not ads_to_remove or not segments:
+        return ads_to_remove
+    if not _ad_review_enabled(db):
+        return ads_to_remove
+
+    extended = extend_ad_boundaries_by_content(
+        ads_to_remove, segments, extend_start=False
+    )
+
+    changed = False
+    for old, new in zip(ads_to_remove, extended):
+        if new['end'] <= old['end']:
+            continue
+        # Never extend a cut into the next detected ad: overlapping spans in
+        # combined_ads.json double-subtract in timestamp mapping.
+        next_start = min(
+            (m['start'] for m in all_ads_with_validation
+             if m.get('start') is not None and m['start'] >= old['end']),
+            default=None,
+        )
+        if next_start is not None and new['end'] > next_start:
+            new['end'] = next_start
+        if new['end'] <= old['end']:
+            continue
+        changed = True
+        audio_logger.info(
+            f"[{slug}:{episode_id}] Tail completion: cut end "
+            f"{old['end']:.1f}s -> {new['end']:.1f}s "
+            f"(+{new['end'] - old['end']:.1f}s, {new.get('sponsor', 'unknown')})"
+        )
+        for master in all_ads_with_validation:
+            if master is old or (master.get('start') == old['start']
+                                 and master.get('end') == old['end']):
+                master['end'] = new['end']
+                master['tail_completed'] = True
+                break
+        else:
+            audio_logger.warning(
+                f"[{slug}:{episode_id}] Tail completion: no master ad matched "
+                f"{old['start']:.1f}s-{old['end']:.1f}s; UI list will not show "
+                f"the extension"
+            )
+
+    if not changed:
+        return ads_to_remove
+
+    storage.save_combined_ads(slug, episode_id, all_ads_with_validation)
+    return extended
+
+
 def _apply_pass2_heuristic_rolls(slug, episode_id, verification_ads_processed,
                                   verification_ads_original, verification_segments,
                                   ads_to_remove, podcast_name, skip_patterns):
@@ -907,31 +1002,78 @@ def _recut_processed_audio(slug, episode_id, processed_path, v_ads_to_cut,
                             local_audio_processor):
     """Re-cut the pass-1 processed audio with verification ads.
 
-    Returns (processed_path, verification_count, recut_ok) where recut_ok is
-    False if the re-cut failed (caller should clear v_ads_for_ui).
+    Returns (processed_path, recut_applied, recut_ok) where recut_applied is
+    the cut list ffmpeg actually applied. recut_ok is False if the re-cut
+    failed (caller should clear v_ads_for_ui).
     """
-    recut_path = local_audio_processor.process_episode(processed_path, v_ads_to_cut)
-    if recut_path:
+    recut_result = local_audio_processor.process_episode(processed_path, v_ads_to_cut)
+    if recut_result:
+        recut_path, recut_applied = recut_result
         if os.path.exists(processed_path):
             try:
                 os.unlink(processed_path)
             except OSError as e:
                 audio_logger.warning(f"[{slug}:{episode_id}] Failed to remove old processed file: {e}")
         processed_path = recut_path
-        verification_count = len(v_ads_to_cut)
-        audio_logger.info(f"[{slug}:{episode_id}] Re-cut pass 1 output, removed {len(v_ads_to_cut)} additional ads")
-        return processed_path, verification_count, True
+        audio_logger.info(f"[{slug}:{episode_id}] Re-cut pass 1 output, removed {len(recut_applied)} additional ads")
+        return processed_path, recut_applied, True
     audio_logger.error(f"[{slug}:{episode_id}] Verification re-cut failed, keeping pass 1 output")
-    return processed_path, 0, False
+    return processed_path, None, False
 
 
-def _run_verification_pass(ctx, processed_path, ads_to_remove,
+def _covered_by_cuts(ad, applied_cuts, total_duration=None, tolerance=0.01):
+    """True when ``ad`` falls inside one of the cuts ffmpeg applied.
+
+    ``total_duration`` clamps the ad to the audio bounds first: applied cuts
+    are clamped (compute_applied_cuts), so an ad whose end overruns the file
+    (Whisper's last segment vs ffprobe) would never match its own cut.
+    """
+    start = max(0.0, ad['start'])
+    end = min(ad['end'], total_duration) if total_duration else ad['end']
+    return any(c['start'] <= start + tolerance and end <= c['end'] + tolerance
+               for c in applied_cuts)
+
+
+def _drop_uncovered_pass2_ads(slug, episode_id, v_ads_to_cut, v_ads_for_ui,
+                               recut_applied, verification_ads_processed,
+                               verification_ads_original, total_duration=None):
+    """Drop pass-2 ads the recut did not actually remove (e.g. <10s filtered).
+
+    Mutates v_ads_to_cut / v_ads_for_ui in place so the count and the UI list
+    only claim cuts that exist in the audio. Merged-away ads still count: a
+    merged span covers its members.
+    """
+    twin = {id(p): o for p, o in zip(verification_ads_processed,
+                                     verification_ads_original)}
+    for ad in [a for a in v_ads_to_cut
+               if not _covered_by_cuts(a, recut_applied, total_duration)]:
+        v_ads_to_cut.remove(ad)
+        ad['was_cut'] = False
+        ui_ad = twin.get(id(ad))
+        if ui_ad is not None:
+            ui_ad['was_cut'] = False
+            for i, u in enumerate(v_ads_for_ui):
+                if u is ui_ad:
+                    del v_ads_for_ui[i]
+                    break
+        audio_logger.info(
+            f"[{slug}:{episode_id}] Pass 2 ad {ad['start']:.1f}s-{ad['end']:.1f}s "
+            f"was filtered out of the recut; not counting it as removed"
+        )
+
+
+def _run_verification_pass(ctx, processed_path, pass1_cuts,
                             skip_patterns, min_cut_confidence,
                             local_audio_processor, progress_callback,
-                            original_segments=None):
+                            original_segments=None, reuse_transcript=False):
     """Pipeline stage: Run verification (second pass) on processed audio.
 
-    Returns (verification_count, v_ads_for_ui, processed_path).
+    ``pass1_cuts`` must be the cuts ffmpeg actually applied (see
+    compute_applied_cuts), not the requested list -- every use here is
+    processed-to-original timestamp mapping.
+
+    Returns (verification_count, v_ads_for_ui, processed_path,
+    verification_cue_count).
     """
     slug = ctx.slug
     episode_id = ctx.episode_id
@@ -941,6 +1083,7 @@ def _run_verification_pass(ctx, processed_path, ads_to_remove,
     podcast_description = ctx.podcast_description
     verification_count = 0
     v_ads_for_ui = []
+    verification_cue_count = 0
     clear_fallback(episode_id, PASS_AD_DETECTION_2)
 
     try:
@@ -954,23 +1097,25 @@ def _run_verification_pass(ctx, processed_path, ads_to_remove,
             processed_audio_path=processed_path,
             podcast_name=podcast_name, episode_title=episode_title,
             slug=slug, episode_id=episode_id,
-            pass1_cuts=ads_to_remove,
+            pass1_cuts=pass1_cuts,
             episode_description=episode_description,
             podcast_description=podcast_description,
             skip_patterns=skip_patterns,
             progress_callback=progress_callback,
             original_segments=original_segments,
+            reuse_transcript=reuse_transcript,
         )
         verification_ads_original = verification_result.get('ads', [])
         verification_ads_processed = verification_result.get('ads_processed', [])
         verification_segments = verification_result.get('segments', [])
+        verification_cue_count = verification_result.get('audio_cue_count', 0)
         storage.save_ads_json(slug, episode_id, verification_result, pass_number=2)
 
         # Heuristic roll detection on pass 2
         _apply_pass2_heuristic_rolls(
             slug, episode_id, verification_ads_processed,
             verification_ads_original, verification_segments,
-            ads_to_remove, podcast_name, skip_patterns,
+            pass1_cuts, podcast_name, skip_patterns,
         )
 
         if verification_ads_processed:
@@ -981,7 +1126,7 @@ def _run_verification_pass(ctx, processed_path, ads_to_remove,
                 verification_ads_processed, verification_ads_original = _validate_verification_ads(
                     slug, episode_id, verification_ads_processed,
                     verification_ads_original, verification_segments,
-                    ads_to_remove, episode_description,
+                    pass1_cuts, episode_description,
                     min_cut_confidence, db,
                 )
 
@@ -1005,11 +1150,21 @@ def _run_verification_pass(ctx, processed_path, ads_to_remove,
                 )
 
                 if v_ads_to_cut:
-                    processed_path, verification_count, recut_ok = _recut_processed_audio(
+                    # Captured before the recut deletes the pre-recut file:
+                    # the coverage check needs the bounds the recut clamped to.
+                    pre_recut_duration = local_audio_processor.get_audio_duration(processed_path)
+                    processed_path, recut_applied, recut_ok = _recut_processed_audio(
                         slug, episode_id, processed_path, v_ads_to_cut,
                         local_audio_processor,
                     )
-                    if not recut_ok:
+                    if recut_ok:
+                        _drop_uncovered_pass2_ads(
+                            slug, episode_id, v_ads_to_cut, v_ads_for_ui,
+                            recut_applied, verification_ads_processed,
+                            verification_ads_original, pre_recut_duration,
+                        )
+                        verification_count = len(v_ads_to_cut)
+                    else:
                         v_ads_for_ui = []
         else:
             audio_logger.info(f"[{slug}:{episode_id}] Verification: clean")
@@ -1017,7 +1172,7 @@ def _run_verification_pass(ctx, processed_path, ads_to_remove,
     except Exception as e:
         audio_logger.error(f"[{slug}:{episode_id}] Verification pass failed: {e}")
 
-    return verification_count, v_ads_for_ui, processed_path
+    return verification_count, v_ads_for_ui, processed_path, verification_cue_count
 
 
 def _generate_assets(slug, episode_id, segments, all_cuts, episode_description,
@@ -1063,7 +1218,7 @@ def _generate_assets(slug, episode_id, segments, all_cuts, episode_description,
         audio_logger.warning(f"[{slug}:{episode_id}] Failed to generate Podcasting 2.0 assets: {e}")
 
 
-def _persist_episode_state(slug, episode_id, ads_to_remove, verification_count,
+def _persist_episode_state(slug, episode_id, pass1_cut_count, verification_count,
                             first_pass_count, original_duration, new_duration,
                             processed_version, db, storage):
     """Upsert the processed episode row and update related DB state."""
@@ -1077,7 +1232,7 @@ def _persist_episode_state(slug, episode_id, ads_to_remove, verification_count,
         original_file=original_file_rel,
         original_duration=original_duration,
         new_duration=new_duration,
-        ads_removed=len(ads_to_remove) + verification_count,
+        ads_removed=pass1_cut_count + verification_count,
         ads_removed_firstpass=first_pass_count,
         ads_removed_secondpass=verification_count,
         reprocess_mode=None,
@@ -1122,11 +1277,11 @@ def _refresh_rss_for_slug(slug, episode_id):
         audio_logger.warning(f"[{slug}:{episode_id}] Failed to regenerate RSS cache: {cache_err}")
 
 
-def _log_completion_summary(slug, episode_id, ads_to_remove, *, verification_count,
+def _log_completion_summary(slug, episode_id, pass1_cut_count, *, verification_count,
                              original_duration, new_duration, processing_time, db):
     """Log completion summary and post-cleanup memory; return token totals.
 
-    Total cuts reported as pass-1 (after reviewer) + verification re-cut.
+    Total cuts reported as pass-1 applied cuts + verification re-cut.
     Matches what ``_persist_episode_state`` stores in episodes.ads_removed
     and what ``_record_history_and_event`` writes to history.ads_detected.
 
@@ -1134,7 +1289,7 @@ def _log_completion_summary(slug, episode_id, ads_to_remove, *, verification_cou
     using the older 7-arg signature cannot silently bind a float duration
     into this slot.
     """
-    total_cuts = len(ads_to_remove) + verification_count
+    total_cuts = pass1_cut_count + verification_count
     if original_duration and new_duration:
         time_saved = original_duration - new_duration
         if time_saved > 0:
@@ -1160,9 +1315,10 @@ def _log_completion_summary(slug, episode_id, ads_to_remove, *, verification_cou
 
 
 def _record_history_and_event(slug, episode_id, episode_title, podcast_name,
-                               ads_to_remove, verification_count,
+                               pass1_cut_count, verification_count,
                                original_duration, new_duration,
-                               processing_time, token_totals, db):
+                               processing_time, token_totals, db,
+                               audio_cue_detections=0):
     """Record processing history row and fire the episode-processed webhook.
 
     The webhook fires whenever the episode pipeline completed, including
@@ -1171,7 +1327,7 @@ def _record_history_and_event(slug, episode_id, episode_title, podcast_name,
     when `record_processing_history` raised, which signals a real DB
     write failure that would leave the History page out of sync.
     """
-    ads_removed_total = len(ads_to_remove) + verification_count
+    ads_removed_total = pass1_cut_count + verification_count
     history_write_raised = False
     try:
         podcast_data = db.get_podcast_by_slug(slug)
@@ -1185,6 +1341,7 @@ def _record_history_and_event(slug, episode_id, episode_title, podcast_name,
                 input_tokens=token_totals['input_tokens'],
                 output_tokens=token_totals['output_tokens'],
                 llm_cost=token_totals['cost'],
+                audio_cues_detected=audio_cue_detections,
             )
         else:
             audio_logger.warning(
@@ -1214,11 +1371,11 @@ def _record_history_and_event(slug, episode_id, episode_title, podcast_name,
 
 
 def _finalize_episode(slug, episode_id, episode_title, podcast_name,
-                       ads_to_remove, verification_count, first_pass_count,
+                       pass1_cut_count, verification_count, first_pass_count,
                        original_duration, new_duration, start_time,
-                       processed_version=0):
+                       processed_version=0, audio_cue_detections=0):
     """Pipeline stage: Update DB, record history, refresh RSS."""
-    _persist_episode_state(slug, episode_id, ads_to_remove, verification_count,
+    _persist_episode_state(slug, episode_id, pass1_cut_count, verification_count,
                             first_pass_count, original_duration, new_duration,
                             processed_version, db, storage)
     _refresh_rss_for_slug(slug, episode_id)
@@ -1226,7 +1383,7 @@ def _finalize_episode(slug, episode_id, episode_title, podcast_name,
     processing_time = time.time() - start_time
 
     token_totals = _log_completion_summary(
-        slug, episode_id, ads_to_remove,
+        slug, episode_id, pass1_cut_count,
         verification_count=verification_count,
         original_duration=original_duration,
         new_duration=new_duration,
@@ -1236,9 +1393,10 @@ def _finalize_episode(slug, episode_id, episode_title, podcast_name,
 
     _record_history_and_event(
         slug, episode_id, episode_title, podcast_name,
-        ads_to_remove, verification_count,
+        pass1_cut_count, verification_count,
         original_duration, new_duration,
         processing_time, token_totals, db,
+        audio_cue_detections=audio_cue_detections,
     )
 
 
@@ -1345,6 +1503,8 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
 
     episode_data = db.get_episode(slug, episode_id)
     reprocess_mode = episode_data.get('reprocess_mode') if episode_data else None
+    # Only 'full' skips the learned-pattern DB. 'reprocess', 'llm' (#349) and the
+    # default first run all keep patterns; any new mode keeps them unless added here.
     skip_patterns = reprocess_mode == 'full'
 
     if reprocess_mode:
@@ -1381,6 +1541,9 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
         try:
             # Stage 2: Audio analysis
             audio_analysis_result = _run_audio_analysis(slug, episode_id, audio_path, segments)
+            # Count audio-cue signals (issue #350) for the stats dashboard.
+            audio_cue_count = (len(audio_analysis_result.get_signals_by_type('audio_cue'))
+                               if audio_analysis_result else 0)
             _check_cancel(cancel_event, slug, episode_id)
 
             # Progress callback for detection stages
@@ -1444,6 +1607,13 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
             )
             _check_cancel(cancel_event, slug, episode_id)
 
+            # Tail completion: final content-based end sweep after the reviewer,
+            # which can pull cut ends back to the detector boundary and strand
+            # the trailing CTA in the audio.
+            ads_to_remove = _complete_cut_tails(
+                slug, episode_id, ads_to_remove, all_ads_with_validation, segments
+            )
+
             # Stage 5: Process audio
             status_service.update_job_stage("pass1:processing", 80)
             audio_logger.info(f"[{slug}:{episode_id}] Starting FFMPEG processing ({len(ads_to_remove)} ads to remove)")
@@ -1452,24 +1622,35 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
             bitrate = settings.get('audio_bitrate', {}).get('value', '128k')
             local_audio_processor = AudioProcessor(bitrate=bitrate)
 
-            processed_path = local_audio_processor.process_episode(audio_path, ads_to_remove)
-            if not processed_path:
+            # process_episode returns the cuts ffmpeg actually applied (merged,
+            # <10s-filtered, end-trimmed); verification mapping and assets must
+            # use that list, not the requested one.
+            result = local_audio_processor.process_episode(audio_path, ads_to_remove)
+            if not result:
                 raise Exception(
                     f"FFMPEG processing failed for {len(ads_to_remove)} ad segments "
                     f"({episode_duration / 60:.1f}min episode) - see audio processor logs above"
                 )
+            processed_path, applied_cuts = result
 
             original_duration = episode_duration
             _check_cancel(cancel_event, slug, episode_id)
 
             # Stage 6: Verification pass
             current_pass = "pass2"
-            verification_count, v_ads_for_ui, processed_path = _run_verification_pass(
-                ctx, processed_path, ads_to_remove,
+            verification_count, v_ads_for_ui, processed_path, verification_cue_count = _run_verification_pass(
+                ctx, processed_path, applied_cuts,
                 skip_patterns, min_cut_confidence,
                 local_audio_processor, detection_progress_callback,
                 original_segments=segments,
+                # LLM-only reprocess maps the saved transcript through the cuts
+                # for pass 2 instead of re-transcribing (issue #349).
+                reuse_transcript=(reprocess_mode == 'llm'),
             )
+            # Detection-event accounting, not unique cues (issue #350): a cue
+            # in a region pass 1 left in the audio is re-detected here and
+            # intentionally counts twice.
+            audio_cue_count += verification_cue_count
             _check_cancel(cancel_event, slug, episode_id)
 
             # Merge pass 2 ads into combined list for UI
@@ -1509,15 +1690,22 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
                 )
 
             # Stage 7: Generate assets
-            all_cuts_for_assets = ads_to_remove + v_ads_for_ui
+            all_cuts_for_assets = applied_cuts + v_ads_for_ui
             _generate_assets(slug, episode_id, segments, all_cuts_for_assets,
                               episode_description, podcast_name, episode_title)
 
-            # Stage 8: Finalize
+            # Stage 8: Finalize. ads_removed accounting counts the cuts that
+            # exist in the audio: an ad merged into a covering span still
+            # counts; one filtered out of the applied list (<10s) does not.
+            pass1_cut_count = sum(
+                1 for ad in ads_to_remove
+                if _covered_by_cuts(ad, applied_cuts, original_duration)
+            )
             _finalize_episode(slug, episode_id, episode_title, podcast_name,
-                               ads_to_remove, verification_count, first_pass_count,
+                               pass1_cut_count, verification_count, first_pass_count,
                                original_duration, new_duration, start_time,
-                               processed_version=new_version)
+                               processed_version=new_version,
+                               audio_cue_detections=audio_cue_count)
 
             status_service.complete_job()
             return True

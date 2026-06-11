@@ -6,6 +6,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.7] - 2026-06-10
+
+### Changed
+
+- LLM-only reprocess (#349) no longer transcribes at all. The first pass already reused the saved transcript, but the verification pass still re-transcribed the cut audio, so re-detecting ads still paid for one transcription. It now maps the saved transcript through the cuts to get the post-cut transcript instead of re-transcribing, so iterating on detection or LLM config is transcription-free. Audio-cue detection still runs on the real processed audio. The trade is that the verification pass can only re-examine what the saved transcript already captured; the other reprocess modes still re-transcribe.
+
+## [2.8.6] - 2026-06-10
+
+### Fixed
+
+- A freshly published episode that 404s on download is now retried instead of failing permanently on the first attempt. Hosts like acast often advertise an episode in the feed a few minutes before the media URL is ready, so the first download attempt 404s. The error was classified as permanent, so the episode failed and served a 410 to subscribers until someone reprocessed it by hand. A download 404 is now treated as transient and flows into the existing retry ladder; a genuinely dead link still fails for good once it exhausts the retry limit.
+
+## [2.8.5] - 2026-06-10
+
+### Fixed
+
+- The processed transcript no longer keeps a line whose audio was cut. A removed ad was only stripped from the transcript when a single cut covered more than 80 percent of a transcript line. A line that straddles two adjacent cuts (a first-pass cut and a verification re-cut that each take roughly half of it) slipped through and left the sponsor copy in the published transcript even though the audio for it was gone. Coverage is now measured against all of the cuts together, so a line that is almost entirely removed by the combined cuts is dropped.
+
+### Changed
+
+- Removed three internal merge marker fields that nothing read anymore (`validation_merged`, `merged_sponsor`, `merged_windows`); a single `merged_distinct_ads` marker replaced them in 2.8.4.
+
+## [2.8.4] - 2026-06-10
+
+### Fixed
+
+- Extended the 2.8.3 reviewer fix to the merge path that actually caused the Grainger survival. A back-to-back ad chain is collapsed into one cut by the window-deduplication step before validation ever sees it, and that step did not mark the result as a multi-ad span. So when the reviewer trimmed the merged block's end, it still severed the trailing ad. Re-verifying 2.8.3 on the Daily Tech News Show episode showed the cut was only saved by a second detection pass, not by the reviewer guard. Every merge that joins separate ads now sets one shared marker, including window and detection-stage merges and ads that sit exactly back-to-back, so the reviewer treats the whole span as expand-only. A single ad re-detected across an overlapping window is left tightenable as before.
+
+## [2.8.3] - 2026-06-10
+
+### Fixed
+
+- The ad reviewer no longer drops a confirmed ad when several back-to-back ads were merged into one cut. When the validator joins adjacent ads across a short gap, or merges fragments of the same sponsor, the result is one span covering several independently detected ads. The reviewer refines that span's boundaries, and an inward pull could land mid-span and sever a trailing ad from the cut. On a sampled Daily Tech News Show episode this left a full Grainger read (about 26 seconds) in the audio after the reviewer trimmed the merged block's end. Merged spans are now expand-only in the reviewer: it can still grow a cut outward to catch a leading or trailing call to action, but it cannot shrink one below the union of the ads it already confirmed. Single detected ads are unaffected and still tighten normally.
+
+## [2.8.2] - 2026-06-10
+
+### Fixed
+
+- Trailing call-to-action lines no longer survive at the end of a removed ad. Cut ends consistently landed a few seconds short, leaving the sponsor URL, a toll-free number, or a closing thank-you (3 to 19 seconds in sampled episodes) in the processed audio. The content-based end extension now runs once more after the ad reviewer, whose boundary verdicts could undo it. It also keeps walking past a connector line sandwiched between sponsor mentions instead of stopping at the first non-ad segment, recognizes toll-free phone numbers as ad content, and can extend up to 30 seconds instead of 15.
+- The generated transcript, chapters, and the verification pass's timestamp mapping are now built from the cuts ffmpeg actually applied instead of the requested list. The two diverge whenever near-adjacent cuts merge, a sub-10-second cut is dropped as a likely false positive, or an end-of-episode cut runs to the end of the file. The divergence shifted every verification timestamp after the affected cut and made the published transcript disagree with the audio around it.
+- The per-episode ads-removed count (episodes table, History page, completion log, webhook payload) now counts cuts that exist in the audio. A requested cut that merged into a neighbor still counts, but one filtered out as too short no longer inflates the number, and a verification-pass ad that the re-cut filtered away is no longer listed as removed in the ad editor.
+- Cut timestamps are clamped to the audio bounds before cutting. Detection can produce an end past the real file duration (Whisper's last segment routinely overruns ffprobe), which previously fed ffmpeg an out-of-range trim; a fully out-of-range cut is now skipped with a log line. When every requested cut filters away, the audio is copied through instead of pointlessly re-encoded.
+- The content-based boundary extension respects its 30-second window on both sides: a single long transcript segment straddling the boundary can no longer pull a cut past the window, and the post-reviewer tail sweep never extends a cut into the next detected ad.
+
+## [2.8.1] - 2026-06-09
+
+### Fixed
+
+- LLM-only reprocess (#349) now reuses the audio and transcript it already has instead of working against a fresh download. It reuses the retained original audio rather than re-downloading, so detection runs against the same recording it cuts. Dynamically inserted ads rotate between downloads, so the old behavior could detect one set of ads and cut another. It also reuses the saved Whisper segments, which carry word-level timestamps, instead of re-parsing the transcript text, which dropped that timing and measurably weakened first-pass detection.
+- The audio cue detection experiment (#350) now reads its enable toggle and tuneables on each run rather than once at startup, so turning it on in Settings takes effect on the next reprocess without a container restart.
+- The verification pass reuses the existing transcript when the first pass cut nothing, instead of re-transcribing the whole episode for an audio file that is identical to the original.
+- An empty completion from the LLM provider is now retried and, if it persists, recorded as a failed detection window instead of being treated as "no ads found" (#358). A flaky or rate-limited endpoint can no longer pass an episode through looking clean. A genuine empty-ad-list response is unaffected.
+
+### Changed
+
+- Dropped the redundant "Experimental" label from the Audio Cue Detection settings card; it already sits under the Experiments section.
+
+## [2.8.0] - 2026-06-09
+
+### Added
+
+- LLM-only reprocess mode (#349). A new "Re-detect Ads" option reruns ad detection and re-cuts the audio using the transcript already saved for an episode, so it skips the transcription step that dominates processing time on local hardware. It is available per episode and in bulk; episodes without a saved transcript are skipped. The transcript is preserved rather than deleted, unlike the existing Reprocess and Full Analysis modes.
+- Audio cue detection, an opt-in experiment (#350). Some shows play a short non-spoken ding or stinger just before an ad break that the transcript cannot capture. When enabled in Settings under Experiments, an extra ffmpeg pass band-passes the audio and flags brief loudness bursts in the cue's frequency band, then passes them to the ad detector as a timing hint. The cue never marks an ad on its own; the model must still find ad content in the transcript, so it only sharpens an ad's start time. The band, prominence threshold, and minimum confidence are tunable, and the Stats page shows how many cues were detected. Off by default.
+
+### Fixed
+
+- A podcast description containing the sequence `]]>` no longer corrupts the generated feed. That sequence closes a CDATA block early, which leaked the rest of the description as raw markup and broke the served XML for every subscriber of that podcast. Description text is now split across CDATA sections so the literal content round-trips intact.
+- The single-feed "Force refresh" now actually forces a refresh. The handler cleared the ETag but dropped the force flag before calling the refresh, so the 30-second coalesce window could still suppress a refresh requested within that window.
+- The pricing fetchers (OpenRouter, pricepertoken, LiteLLM) now cap the response body they read. A hostile or broken pricing host could previously return an unbounded body and exhaust worker memory.
+
+### Changed
+
+- Removed dead imports and unused locals flagged by static analysis, and declared the public re-export surface of the `ad_detector` package explicitly.
+
 ## [2.7.9] - 2026-06-09
 
 ### Added
