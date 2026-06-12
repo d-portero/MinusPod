@@ -164,11 +164,16 @@ AUDIO_CUE_PROMINENCE_DB = 9.0        # dB above the in-band baseline to count as
 AUDIO_CUE_MIN_CONFIDENCE = 0.80      # Drop cues below this confidence (also the prompt floor)
 AUDIO_CUE_MIN_DURATION = 0.10        # Min burst length (s); shorter is noise
 AUDIO_CUE_MAX_DURATION = 2.0         # Max burst length (s); longer is content/music, not a ding
+AUDIO_CUE_ONSET_LAG_SECONDS = 0.2    # ebur128 momentary loudness integrates over 400ms, so the
+                                     # first above-threshold frame lags the true onset; pull the
+                                     # reported start back by this much
 
 # ============================================================
 # Audio Processing
 # ============================================================
 MIN_AD_DURATION_FOR_REMOVAL = 10.0   # Min ad duration to actually remove from audio
+SHORT_CUT_KEEP_CONFIDENCE = 0.9      # Keep a shorter cut anyway at/above this confidence
+                                     # (fingerprint-stage cuts are always kept)
 POST_ROLL_TRIM_THRESHOLD = 30.0      # Threshold for trimming post-roll content
 MERGE_GAP_SECONDS = 1.0              # Cuts separated by less than this merge into one
                                      # (distinct from the validator's MERGE_GAP_THRESHOLD)

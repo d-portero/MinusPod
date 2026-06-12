@@ -935,11 +935,15 @@ def _apply_pass2_heuristic_rolls(slug, episode_id, verification_ads_processed,
 def _validate_verification_ads(slug, episode_id, verification_ads_processed,
                                 verification_ads_original, verification_segments,
                                 ads_to_remove, episode_description,
-                                min_cut_confidence, db):
+                                min_cut_confidence, db,
+                                processed_duration=None):
     """Validate pass-2 ad candidates against processed-coordinate validator.
 
     Maps pass-1 user FP corrections from original to processed coordinates,
     then filters both processed and original ad lists by validator decision.
+    ``processed_duration`` is the real (ffprobe) duration of the pass-1
+    output; the validator clamps and extends trailing ads against it. Falls
+    back to the last transcript segment's end when not provided.
     Returns (verification_ads_processed, verification_ads_original).
     """
     from ad_validator import AdValidator
@@ -961,20 +965,50 @@ def _validate_verification_ads(slug, episode_id, verification_ads_processed,
                 f"{len(fp_corrections_processed)} user-rejected region(s)"
             )
 
-    processed_duration = verification_segments[-1]['end']
+    if not processed_duration:
+        # Whisper's last segment end approximates the file duration but can
+        # over- or under-run it; only used when the ffprobe probe failed.
+        processed_duration = verification_segments[-1]['end']
     v_validator = AdValidator(
         processed_duration, verification_segments,
         episode_description,
         false_positive_corrections=fp_corrections_processed,
         min_cut_confidence=min_cut_confidence,
     )
+
+    # Pair each processed candidate with its original-coords twin before
+    # validation: validate() sorts, merges and drops ads, so positional
+    # indexing against the unvalidated original list mispairs. The shallow
+    # ad.copy() inside validate() carries the reference through; a merge
+    # keeps the surviving ad's twin and drops the absorbed one, so the
+    # original list mirrors the processed list 1:1.
+    for proc, orig in zip(verification_ads_processed, verification_ads_original):
+        proc['_orig_twin'] = orig
+
     v_validation = v_validator.validate(verification_ads_processed)
 
-    keep_indices = {idx for idx, ad in enumerate(v_validation.ads)
-                    if ad.get('validation', {}).get('decision') != 'REJECT'}
-    verification_ads_processed = [ad for idx, ad in enumerate(v_validation.ads) if idx in keep_indices]
-    verification_ads_original = [ad for idx, ad in enumerate(verification_ads_original) if idx in keep_indices]
-    return verification_ads_processed, verification_ads_original
+    # validate() worked on copies; strip the key from the input dicts too so
+    # no later consumer of the raw verification result can serialize it.
+    for proc in verification_ads_processed:
+        proc.pop('_orig_twin', None)
+
+    kept_processed, kept_original = [], []
+    for ad in v_validation.ads:
+        # Strip the pairing key from every validator output (rejected ones
+        # included) so it can never leak into serialized payloads.
+        orig = ad.pop('_orig_twin', None)
+        if ad.get('validation', {}).get('decision') == 'REJECT':
+            continue
+        if orig is None:
+            audio_logger.warning(
+                f"[{slug}:{episode_id}] Pass 2 ad {ad['start']:.1f}s-"
+                f"{ad['end']:.1f}s has no original twin after validation; "
+                f"dropping"
+            )
+            continue
+        kept_processed.append(ad)
+        kept_original.append(orig)
+    return kept_processed, kept_original
 
 
 def _gate_verification_ads_by_confidence(verification_ads_processed,
@@ -1121,6 +1155,12 @@ def _run_verification_pass(ctx, processed_path, pass1_cuts,
         if verification_ads_processed:
             audio_logger.info(f"[{slug}:{episode_id}] Verification found {len(verification_ads_processed)} missed ads - re-cutting pass 1 output")
 
+            # Real duration of the pass-1 output, probed once: validation
+            # clamps and extends trailing ads against it (Whisper's last
+            # segment end can over- or under-run the file), and the recut
+            # coverage check below needs the same pre-recut bounds.
+            processed_duration = local_audio_processor.get_audio_duration(processed_path)
+
             # Validate verification ads
             if verification_segments:
                 verification_ads_processed, verification_ads_original = _validate_verification_ads(
@@ -1128,6 +1168,7 @@ def _run_verification_pass(ctx, processed_path, pass1_cuts,
                     verification_ads_original, verification_segments,
                     pass1_cuts, episode_description,
                     min_cut_confidence, db,
+                    processed_duration=processed_duration,
                 )
 
             if verification_ads_processed:
@@ -1150,9 +1191,10 @@ def _run_verification_pass(ctx, processed_path, pass1_cuts,
                 )
 
                 if v_ads_to_cut:
-                    # Captured before the recut deletes the pre-recut file:
-                    # the coverage check needs the bounds the recut clamped to.
-                    pre_recut_duration = local_audio_processor.get_audio_duration(processed_path)
+                    # Probed above, before the recut deletes the pre-recut
+                    # file: the coverage check needs the bounds the recut
+                    # clamped to.
+                    pre_recut_duration = processed_duration
                     processed_path, recut_applied, recut_ok = _recut_processed_audio(
                         slug, episode_id, processed_path, v_ads_to_cut,
                         local_audio_processor,
@@ -1632,6 +1674,28 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
                     f"({episode_duration / 60:.1f}min episode) - see audio processor logs above"
                 )
             processed_path, applied_cuts = result
+
+            # A requested cut the applied list does not cover (e.g. a short
+            # untrusted span the filter dropped) is still in the audio; the
+            # ad editor must not claim it was removed. Reviewer adjustments
+            # rebuild dicts, so match the master entry by identity or span
+            # (same approach as the tail-completion sweep).
+            uncovered = [ad for ad in ads_to_remove
+                         if not _covered_by_cuts(ad, applied_cuts, episode_duration)]
+            if uncovered:
+                for ad in uncovered:
+                    ad['was_cut'] = False
+                    for master in all_ads_with_validation:
+                        if master is ad or (master.get('start') == ad['start']
+                                            and master.get('end') == ad['end']):
+                            master['was_cut'] = False
+                            break
+                    audio_logger.info(
+                        f"[{slug}:{episode_id}] Pass 1 ad {ad['start']:.1f}s-"
+                        f"{ad['end']:.1f}s was filtered out of the applied "
+                        f"cuts; marking as not cut"
+                    )
+                storage.save_combined_ads(slug, episode_id, all_ads_with_validation)
 
             original_duration = episode_duration
             _check_cancel(cancel_event, slug, episode_id)
