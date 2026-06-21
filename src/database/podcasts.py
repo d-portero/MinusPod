@@ -24,6 +24,22 @@ class PodcastMixin:
         """)
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_custom_network_overrides(self) -> List[str]:
+        """Distinct non-empty network_id_override values across all podcasts.
+
+        These are operator-typed free-text network names that act as both the id
+        and the display label. Surfacing them lets a network created on one feed
+        appear in the network dropdown of every other feed.
+        """
+        conn = self.get_connection()
+        cursor = conn.execute("""
+            SELECT DISTINCT network_id_override
+            FROM podcasts
+            WHERE network_id_override IS NOT NULL
+              AND TRIM(network_id_override) != ''
+        """)
+        return [row['network_id_override'] for row in cursor.fetchall()]
+
     def get_podcast_by_slug(self, slug: str) -> Optional[Dict]:
         """Get podcast by slug with episode counts."""
         conn = self.get_connection()
@@ -39,6 +55,15 @@ class PodcastMixin:
         """, (slug,))
         row = cursor.fetchone()
         return dict(row) if row else None
+
+    def get_podcast_detection_mode(self, slug: str) -> Optional[str]:
+        """Per-feed detection_mode column only -- a cheap single-row lookup that
+        skips the episode aggregation get_podcast_by_slug runs."""
+        conn = self.get_connection()
+        cursor = conn.execute(
+            "SELECT detection_mode FROM podcasts WHERE slug = ?", (slug,))
+        row = cursor.fetchone()
+        return row['detection_mode'] if row else None
 
     def create_podcast(self, slug: str, source_url: str, title: str = None) -> int:
         """Create a new podcast. Returns podcast ID."""
@@ -64,7 +89,8 @@ class PodcastMixin:
             if key in ('title', 'description', 'artwork_url', 'artwork_cached',
                        'last_checked_at', 'source_url', 'network_id', 'dai_platform',
                        'network_id_override', 'audio_analysis_override', 'auto_process_override',
-                       'language_override', 'title_override', 'max_episodes', 'etag',
+                       'language_override', 'title_override', 'detection_mode',
+                       'max_episodes', 'etag',
                        'last_modified_header', 'only_expose_processed_episodes'):
                 fields.append(f"{key} = ?")
                 values.append(value)

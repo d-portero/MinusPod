@@ -15,6 +15,7 @@ function FeedSettingsPanel({ feed, slug }: Props) {
   const queryClient = useQueryClient();
   const [isEditingNetwork, setIsEditingNetwork] = useState(false);
   const [editNetworkOverride, setEditNetworkOverride] = useState<string>('');
+  const [customNetwork, setCustomNetwork] = useState(false);
   const [editDaiPlatform, setEditDaiPlatform] = useState('');
   const [editAutoProcessOverride, setEditAutoProcessOverride] = useState<string>('global');
   const [editMaxEpisodes, setEditMaxEpisodes] = useState<string>('');
@@ -28,12 +29,21 @@ function FeedSettingsPanel({ feed, slug }: Props) {
     mutationFn: (data: UpdateFeedPayload) => updateFeed(slug, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['feed', slug] });
+      // Surface a newly-typed custom network in every other feed's dropdown.
+      queryClient.invalidateQueries({ queryKey: ['networks'] });
       setIsEditingNetwork(false);
     },
   });
 
   const startEditingNetwork = () => {
-    setEditNetworkOverride(feed.networkIdOverride || '');
+    const override = feed.networkIdOverride || '';
+    // Until the network list loads we cannot tell a known network from a custom
+    // one, so default to the dropdown (a fallback option renders the value)
+    // rather than misreading a known network as custom.
+    const networksLoaded = networks !== undefined;
+    const isKnown = (networks ?? []).some((n) => n.id === override);
+    setEditNetworkOverride(override);
+    setCustomNetwork(networksLoaded && override !== '' && !isKnown);
     setEditDaiPlatform(feed.daiPlatform || '');
     if (feed.autoProcessOverride === true) {
       setEditAutoProcessOverride('enable');
@@ -57,7 +67,7 @@ function FeedSettingsPanel({ feed, slug }: Props) {
     const maxEp = editMaxEpisodes ? parseInt(editMaxEpisodes, 10) : null;
 
     updateMutation.mutate({
-      networkIdOverride: editNetworkOverride || null,
+      networkIdOverride: editNetworkOverride.trim() || null,
       daiPlatform: editDaiPlatform || undefined,
       autoProcessOverride: autoProcessOverride,
       maxEpisodes: maxEp !== null && !isNaN(maxEp) ? Math.max(10, Math.min(maxEp, 500)) : null,
@@ -79,8 +89,17 @@ function FeedSettingsPanel({ feed, slug }: Props) {
               <div className="flex items-center gap-2">
                 <label className="text-muted-foreground w-16 shrink-0">Network:</label>
                 <select
-                  value={editNetworkOverride}
-                  onChange={(e) => setEditNetworkOverride(e.target.value)}
+                  value={customNetwork ? '__custom__' : editNetworkOverride}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__custom__') {
+                      setCustomNetwork(true);
+                      setEditNetworkOverride('');
+                    } else {
+                      setCustomNetwork(false);
+                      setEditNetworkOverride(v);
+                    }
+                  }}
                   className="flex-1 min-w-0 px-2 py-1 bg-secondary border border-border rounded"
                 >
                   <option value="">Auto-detect</option>
@@ -89,8 +108,30 @@ function FeedSettingsPanel({ feed, slug }: Props) {
                       {network.name}
                     </option>
                   ))}
+                  {editNetworkOverride && !customNetwork &&
+                    !(networks ?? []).some((n) => n.id === editNetworkOverride) && (
+                    <option value={editNetworkOverride}>{editNetworkOverride}</option>
+                  )}
+                  <option value="__custom__">Custom network...</option>
                 </select>
               </div>
+              {customNetwork && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <label className="text-muted-foreground w-16 shrink-0">Name:</label>
+                    <input
+                      type="text"
+                      value={editNetworkOverride}
+                      onChange={(e) => setEditNetworkOverride(e.target.value)}
+                      placeholder="Network name"
+                      className="flex-1 min-w-0 px-2 py-1 bg-secondary border border-border rounded"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground pl-[4.5rem]">
+                    Feeds with the same name share cues.
+                  </p>
+                </>
+              )}
               <div className="flex items-center gap-2">
                 <label className="text-muted-foreground w-16 shrink-0">DAI:</label>
                 <input
@@ -131,13 +172,13 @@ function FeedSettingsPanel({ feed, slug }: Props) {
             </div>
           ) : (
             <div className="flex items-center gap-3 flex-wrap text-sm">
-              {feed.networkId && (
+              {(feed.networkIdOverride || feed.networkId) && (
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                   feed.networkIdOverride
                     ? 'bg-orange-500/20 text-orange-600 dark:text-orange-400'
                     : 'bg-green-500/20 text-green-600 dark:text-green-400'
                 }`}>
-                  {feed.networkIdOverride ? 'Override' : 'Detected'}: {feed.networkId}
+                  {feed.networkIdOverride ? 'Override' : 'Detected'}: {feed.networkIdOverride || feed.networkId}
                 </span>
               )}
               {feed.daiPlatform && (
@@ -152,7 +193,7 @@ function FeedSettingsPanel({ feed, slug }: Props) {
                 onClick={startEditingNetwork}
                 className="text-xs text-muted-foreground hover:text-foreground"
               >
-                {feed.networkId || feed.daiPlatform ? 'Edit' : '+ Add network'}
+                {feed.networkIdOverride || feed.networkId || feed.daiPlatform ? 'Edit' : '+ Add network'}
               </button>
             </div>
           )}
@@ -175,6 +216,30 @@ function FeedSettingsPanel({ feed, slug }: Props) {
                 }`}>
                   {feed.autoProcessOverride ? 'Enabled' : 'Disabled'}
                 </span>
+              )}
+            </div>
+          </div>
+
+          {/* Per-feed detection mode (experimental keep-content inversion) */}
+          <div className="flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3 text-sm">
+            <span className="text-muted-foreground whitespace-nowrap sm:w-32 shrink-0 sm:pt-1.5">Detection:</span>
+            <div className="flex flex-col gap-1 flex-1 min-w-0">
+              <select
+                value={feed.detectionMode || 'blacklist'}
+                onChange={(e) => updateMutation.mutate({ detectionMode: e.target.value })}
+                disabled={updateMutation.isPending}
+                className="px-2 py-1.5 text-sm bg-secondary border border-border rounded flex-1 sm:flex-none min-w-0 disabled:opacity-50"
+              >
+                <option value="blacklist">Remove ads (default)</option>
+                <option value="keep_content">Keep content only (experimental)</option>
+              </select>
+              {feed.detectionMode === 'keep_content' && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Removes everything the model does not mark as show content. For feeds with
+                  unrecognizable inserted ads. Safety checks revert to normal removal when the
+                  labeling looks off, but they can miss a single mislabeled stretch and cut real
+                  audio. Check each episode.
+                </p>
               )}
             </div>
           </div>

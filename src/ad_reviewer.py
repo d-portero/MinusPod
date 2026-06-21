@@ -13,7 +13,10 @@ from config import (
     AD_REVIEWER_PARALLEL_ADS_MIN,
     AD_REVIEWER_PARALLEL_ADS_MAX,
     resolve_env_backed_default,
+    AUDIO_CUE_ROLE_DEFAULT,
+    AUDIO_CUE_ROLE_NON_AD,
 )
+from audio_enforcer import content_anchors
 from database import DEFAULT_REVIEW_PROMPT, DEFAULT_RESURRECT_PROMPT
 from llm_capabilities import PASS_REVIEWER_1, PASS_REVIEWER_2
 from llm_client import get_llm_max_retries, get_llm_timeout
@@ -112,6 +115,130 @@ class ReviewResult:
     rejected_by_reviewer: List[Dict] = field(default_factory=list)
     resurrected: List[Dict] = field(default_factory=list)
     verdicts: List[ReviewVerdict] = field(default_factory=list)
+
+
+def _format_cue_section(*, audio_analysis, ad_start: float, ad_end: float,
+                        cue_pair=None, cue_snap=None) -> str:
+    """Render audio cue context for the reviewer's per-ad user prompt (#350).
+
+    Includes:
+    - Every ``audio_cue`` signal within 60 s of the candidate boundaries,
+      with its label, time, and confidence.
+    - The ``cue_pair`` block when the ad was synthesised from a bracketing
+      pair of cues; signals the reviewer to keep the ad even if the
+      transcript inside looks light on promotional language.
+    - The ``cue_snap`` block when the boundary snap already shifted an edge
+      to a cue; signals the reviewer not to undo that snap.
+
+    Returns the empty string when there is nothing relevant to surface.
+    """
+    lines = []
+    if audio_analysis is not None:
+        try:
+            cues = audio_analysis.get_signals_by_type('audio_cue')
+        except AttributeError:
+            cues = []
+        near_start = []
+        near_end = []
+        near_non_ad = []
+        for cue in cues:
+            if cue.confidence < 0.80:
+                continue
+            details = cue.details or {}
+            label = details.get('label') or 'audio cue'
+            role = details.get('role', AUDIO_CUE_ROLE_DEFAULT)
+            near_start_edge = abs(cue.start - ad_start) <= 60.0 or abs(cue.end - ad_start) <= 60.0
+            near_end_edge = abs(cue.start - ad_end) <= 60.0 or abs(cue.end - ad_end) <= 60.0
+            if role == AUDIO_CUE_ROLE_NON_AD:
+                # Intro/outro markers are not boundary evidence; surface them
+                # only to warn the reviewer off anchoring the ad to them.
+                if near_start_edge or near_end_edge:
+                    near_non_ad.append((cue, label))
+                continue
+            if near_start_edge:
+                near_start.append((cue, label))
+            if near_end_edge:
+                near_end.append((cue, label))
+        if near_start or near_end:
+            lines.append("AUDIO CUE EVIDENCE:")
+            for cue, label in near_start:
+                lines.append(
+                    f"  - near AD START: \"{label}\" cue at "
+                    f"{cue.start:.1f}s-{cue.end:.1f}s "
+                    f"(confidence {cue.confidence:.0%})"
+                )
+            for cue, label in near_end:
+                lines.append(
+                    f"  - near AD END: \"{label}\" cue at "
+                    f"{cue.start:.1f}s-{cue.end:.1f}s "
+                    f"(confidence {cue.confidence:.0%})"
+                )
+            lines.append(
+                "These cues are show stingers / break jingles. Treat each as a "
+                "ground-truth boundary marker for its side of the break -- do not "
+                "pull a boundary across a cue without strong transcript evidence."
+            )
+        if near_non_ad:
+            lines.append("SHOW INTRO/OUTRO MARKERS NEARBY:")
+            for cue, label in near_non_ad:
+                lines.append(
+                    f"  - \"{label}\" at {cue.start:.1f}s-{cue.end:.1f}s "
+                    f"(the show's open/close, NOT an ad boundary)"
+                )
+            lines.append(
+                "Do not anchor this ad's boundary to these markers; they are the "
+                "show's own intro/outro, not break stingers."
+            )
+        # Pre/post-roll position bias: an ad wholly outside the content span
+        # (before the first intro or after the last outro) is expected to be
+        # promotional, so lean toward keeping it.
+        pre_roll_boundary, post_roll_boundary = content_anchors(audio_analysis)
+        position_notes = []
+        if pre_roll_boundary is not None and ad_end <= pre_roll_boundary:
+            position_notes.append(
+                f"before the show's intro marker at {pre_roll_boundary:.0f}s "
+                f"(pre-roll zone)"
+            )
+        if post_roll_boundary is not None and ad_start >= post_roll_boundary:
+            position_notes.append(
+                f"after the show's outro marker at {post_roll_boundary:.0f}s "
+                f"(post-roll zone)"
+            )
+        if position_notes:
+            lines.append(
+                "POSITION: this ad sits " + " and ".join(position_notes)
+                + " -- promotional copy here is expected; lean toward keeping it."
+            )
+    if cue_pair:
+        start_label = (cue_pair.get('start') or {}).get('label')
+        end_label = (cue_pair.get('end') or {}).get('label')
+        lines.append(
+            f"CUE-PAIR ORIGIN: this ad was bracketed by matching cues "
+            f"(start={start_label!r}, end={end_label!r}). The transcript inside "
+            f"may be sparse on promotional language; keep the ad as long as any "
+            f"sponsor or platform copy appears between the cues."
+        )
+    if cue_snap:
+        moved = []
+        if 'start' in cue_snap:
+            moved.append(
+                f"start snapped to \"{cue_snap['start'].get('label') or 'cue'}\" "
+                f"end (was {cue_snap['start'].get('original')}s)"
+            )
+        if 'end' in cue_snap:
+            moved.append(
+                f"end snapped to \"{cue_snap['end'].get('label') or 'cue'}\" "
+                f"start (was {cue_snap['end'].get('original')}s)"
+            )
+        if moved:
+            lines.append(
+                "CUE SNAP APPLIED: " + "; ".join(moved) +
+                ". Do not undo these snaps; they land the cut on the chime "
+                "rather than mid-conversation."
+            )
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n\n"
 
 
 class AdReviewer:
@@ -591,11 +718,20 @@ class AdReviewer:
                 f"Original boundaries: {start:.2f}s - {end:.2f}s.\n"
             )
 
+        cue_section = _format_cue_section(
+            audio_analysis=episode_meta.get('audio_analysis'),
+            ad_start=start,
+            ad_end=end,
+            cue_pair=ad.get('cue_pair'),
+            cue_snap=ad.get('cue_snap'),
+        )
+
         return (
             f"Podcast: {podcast_name}\n"
             f"Episode: {episode_title}\n"
             f"{description_section}\n"
             f"{framing}\n"
+            f"{cue_section}"
             f"Transcript (60s before, the candidate ad, 60s after):\n"
             f"[{max(0.0, start - 60.0):.1f}s] {before_text}\n"
             f"[{start:.1f}s] >>> CANDIDATE AD START >>> {ad_text} <<< CANDIDATE AD END <<< [{end:.1f}s]\n"

@@ -829,11 +829,17 @@ WHAT TO LOOK FOR:
   traditional ad markers like promo codes.
 
 AUDIO SIGNALS:
-Audio analysis may detect volume anomalies, DAI transitions, or silence gaps in the episode.
+Audio analysis may detect volume anomalies, DAI transitions, silence gaps, or labelled audio cues
+(show stingers / break jingles known to bracket ad breaks on this show).
 These signals are SUPPORTING EVIDENCE ONLY. They help locate potential ad boundaries but do NOT
 constitute ads by themselves. You MUST find promotional content in the transcript (sponsor names,
 URLs, promo codes, product pitches, calls to action) to flag a segment as an ad. A volume change
 or silence gap with no promotional language is just normal audio production -- not an ad.
+
+LABELLED AUDIO CUES: when the AUDIO SIGNALS list a labelled cue, treat it as a strong boundary
+marker for the side of the ad break it sits on; the detailed handling (multi-cue breaks, where to
+start and end the span) is supplied alongside the cue in the AUDIO SIGNALS block. The cue is never
+an ad on its own.
 
 COMMON PODCAST SPONSORS (high confidence if mentioned):
 BetterHelp, Athletic Greens, AG1, Shopify, Amazon, Audible, Squarespace, HelloFresh, Factor, NordVPN, ExpressVPN, Mint Mobile, MasterClass, Calm, Headspace, ZipRecruiter, Indeed, LinkedIn Jobs, LinkedIn, Stamps.com, SimpliSafe, Ring, ADT, Casper, Helix Sleep, Purple, Brooklinen, Bombas, Manscaped, Dollar Shave Club, Harry's, Quip, Hims, Hers, Roman, Function of Beauty, Native, Liquid IV, Athletic Brewing, Magic Spoon, Thrive Market, Butcher Box, Blue Apron, DoorDash, Uber Eats, Grubhub, Instacart, Rocket Money, Credit Karma, SoFi, Acorns, Betterment, Wealthfront, PolicyGenius, Lemonade, State Farm, Progressive, Geico, Liberty Mutual, T-Mobile, Visible, FanDuel, DraftKings, BetMGM, Toyota, Hyundai, CarMax, Carvana, eBay Motors, ZocDoc, GoodRx, Care/of, Ritual, Seed, HubSpot, NetSuite, Monday.com, Notion, Canva, Grammarly, Babbel, Rosetta Stone, Blinkist, Raycon, Bose, MacPaw, CleanMyMac, Green Chef, Magic Mind, Honeylove, Cozy Earth, Quince, LMNT, Nutrafol, Aura, OneSkin, Incogni, Gametime, 1Password, Bitwarden, CacheFly, Deel, DeleteMe, Framer, Miro, Monarch Money, OutSystems, Spaceship, Thinkst Canary, ThreatLocker, Vanta, Veeam, Zapier, Zscaler, Capital One, Ford, WhatsApp

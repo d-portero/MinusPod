@@ -186,6 +186,134 @@ AUDIO_CUE_ONSET_LAG_SECONDS = 0.2    # ebur128 momentary loudness integrates ove
                                      # first above-threshold frame lags the true onset; pull the
                                      # reported start back by this much
 
+# Per-feed template matcher (#350): ZNCC score floor for a learned cue to
+# register. 0.75 balances cross-codec recurrences (which land 0.85-0.95 but can
+# dip below 0.85 with background beds) against false positives (non-cue audio
+# sits near 0.0). Tuneable via the audio_cue_template_score DB setting.
+AUDIO_CUE_TEMPLATE_SCORE = 0.75
+
+# Cue boundary snap + cue-pair synthesis tunables (#350). All DB-settable so a
+# show with a noisy cue or unusual break lengths can be tuned without a code
+# change; the defaults match the values the feature shipped with.
+AUDIO_CUE_SNAP_CONFIDENCE = 0.80        # Min cue confidence to move an ad edge
+AUDIO_CUE_CAPTURE_MIN_SECONDS = 0.20    # Shortest cue a user may bracket (match-reliability floor)
+AUDIO_CUE_CAPTURE_MAX_SECONDS = 4.0     # Longest cue a user may bracket
+AUDIO_CUE_PAIR_CONFIDENCE = 0.85        # Min cue confidence to synthesize an ad from a pair
+AUDIO_CUE_PAIR_MIN_BREAK_SECONDS = 30.0   # Shortest plausible cue-pair break
+AUDIO_CUE_PAIR_MAX_BREAK_SECONDS = 480.0  # Longest plausible cue-pair break
+# Cue-candidate recurrence (episode-page "find candidates" scan). A real cue
+# repeats; a one-off loud burst does not. Bursts are clustered by MFCC
+# similarity and only sounds that recur at least MIN_COUNT times are suggested.
+AUDIO_CUE_RECURRENCE_SIMILARITY = 0.75   # peak sliding-ZNCC to call two bursts the same sound
+AUDIO_CUE_RECURRENCE_MIN_COUNT = 3       # minimum occurrences to suggest a sound
+# The recurrence scan decodes the whole episode (90s+ on a long show), so it
+# runs in a background thread and the result is cached. A scan row older than
+# this is treated as crashed/expired and reclaimable for a fresh run.
+AUDIO_CUE_CANDIDATE_SCAN_STALE_SECONDS = 900
+
+# Keep-content (whitelist) detection mode -- OPT-IN per feed, default blacklist.
+# In this mode the LLM labels substantive show content and we remove the
+# COMPLEMENT (everything that is not content). It targets feeds with
+# unrecognizable programmatic (DAI) ads where the host content is easier to
+# identify than the ads. The failure mode is silent content deletion (an
+# under-labeled content list cuts real show audio), so these gates abort to
+# normal blacklist detection rather than trust a suspicious content pass.
+# Coverage and removed-fraction are complements at these defaults (0.55 + 0.45
+# = 1.0), so they enforce the same boundary unless tuned apart -- keep both as
+# independent knobs: max_removed can be set stricter than 1 - min_coverage.
+KEEP_CONTENT_MIN_COVERAGE = 0.55          # content must cover >= this fraction or abort
+KEEP_CONTENT_MAX_REMOVED_FRACTION = 0.45  # inverted cuts may remove <= this or abort
+KEEP_CONTENT_EDGE_PAD_SECONDS = 1.5       # grow each content span by this (keep a speech buffer)
+KEEP_CONTENT_MIN_GAP_SECONDS = 8.0        # content spans closer than this are bridged (kept)
+KEEP_CONTENT_MIN_AD_SECONDS = 1.0         # drop inverted ad slivers shorter than this
+KEEP_CONTENT_MAX_SINGLE_AD_FRACTION = 0.25  # one cut > this fraction looks like a missing content window -> abort
+KEEP_CONTENT_MAX_SINGLE_AD_SECONDS = 420.0  # absolute cap: one cut longer than this (7 min) -> abort (the fraction gate is too loose on multi-hour episodes)
+
+DETECTION_MODE_BLACKLIST = 'blacklist'
+DETECTION_MODE_KEEP_CONTENT = 'keep_content'
+DETECTION_MODES = (DETECTION_MODE_BLACKLIST, DETECTION_MODE_KEEP_CONTENT)
+
+
+def resolve_detection_mode(db, slug):
+    """Per-feed detection mode, defaulting to blacklist (today's behavior).
+
+    Keep-content is deliberately PER-FEED ONLY -- there is no global default
+    that could silently flip every feed to content-cutting. An unknown value
+    falls back to blacklist so a bad value can never enable content cutting.
+    """
+    mode = None
+    try:
+        if db and slug:
+            mode = db.get_podcast_detection_mode(slug)
+    except Exception:
+        return DETECTION_MODE_BLACKLIST
+    return mode if mode in DETECTION_MODES else DETECTION_MODE_BLACKLIST
+
+# Cue template types (#350). A cue is one of a fixed set of types chosen from a
+# dropdown, never freeform text, so the phrase fed to the LLM prompt is always
+# consistent and the matching role is explicit. Maps type key -> (canonical
+# phrase shown to the LLM and UI, matching role). Roles:
+#   'start'    - eligible to snap an ad START edge; opens a cue pair.
+#   'end'      - eligible to snap an ad END edge; closes a cue pair.
+#   'boundary' - both of the above (default; also the role of the spectral
+#                fallback's role-less cues, so legacy behavior is unchanged).
+#   'non_ad'   - intro/outro: never snaps or pairs; only tells the model the
+#                sound marks the show's open/close, not an ad boundary.
+AUDIO_CUE_TYPES = {
+    'ad_break_boundary': ('ad-break boundary', 'boundary'),
+    'ad_break_start': ('ad-break start', 'start'),
+    'ad_break_end': ('ad-break end', 'end'),
+    'show_intro': ('show intro', 'non_ad'),
+    'show_outro': ('show outro', 'non_ad'),
+}
+AUDIO_CUE_TYPE_DEFAULT = 'ad_break_boundary'
+# The two non_ad types that anchor where show content begins / ends. Audio
+# before the first intro or after the last outro is biased toward pre/post-roll
+# ads in the prompt (#350 follow-up).
+AUDIO_CUE_TYPE_SHOW_INTRO = 'show_intro'
+AUDIO_CUE_TYPE_SHOW_OUTRO = 'show_outro'
+# Per-type capture ceiling (seconds). Intro/outro stingers run longer than
+# ad-break dings, so they get a higher ceiling; every other type falls back to
+# the flat AUDIO_CUE_CAPTURE_MAX_SECONDS default.
+AUDIO_CUE_CAPTURE_MAX_BY_TYPE = {
+    AUDIO_CUE_TYPE_SHOW_INTRO: 60.0,
+    AUDIO_CUE_TYPE_SHOW_OUTRO: 60.0,
+}
+
+
+def audio_cue_type_label(cue_type):
+    """Canonical LLM/UI phrase for a cue type (falls back to the default)."""
+    return AUDIO_CUE_TYPES.get(cue_type, AUDIO_CUE_TYPES[AUDIO_CUE_TYPE_DEFAULT])[0]
+
+
+def audio_cue_type_role(cue_type):
+    """Matching role for a cue type (falls back to the default)."""
+    return AUDIO_CUE_TYPES.get(cue_type, AUDIO_CUE_TYPES[AUDIO_CUE_TYPE_DEFAULT])[1]
+
+
+# Single source of truth for the cue-role vocabulary the consumers gate on, so
+# snap / cue-pair / prompt rendering never re-type the same role literals.
+# AUDIO_CUE_ROLE_DEFAULT is the role assumed for a signal with no explicit role
+# (the spectral fallback's cues and any legacy signal) -- it must stay equal to
+# the default type's role.
+AUDIO_CUE_ROLE_DEFAULT = audio_cue_type_role(AUDIO_CUE_TYPE_DEFAULT)  # 'boundary'
+AUDIO_CUE_ROLE_NON_AD = 'non_ad'  # intro/outro: never snaps or pairs
+# Cue signal source: a precise template match vs the coarse spectral fallback.
+# Only template cues may create ads or move ad edges; spectral cues are
+# LLM-prompt evidence only. Centralized so the gate is never re-typed.
+AUDIO_CUE_SOURCE_TEMPLATE = 'template'
+AUDIO_CUE_SOURCE_SPECTRAL = 'spectral'
+
+
+def is_template_cue(details):
+    """True if a cue's ``details`` mark it as a precise template match."""
+    return (details or {}).get('source') == AUDIO_CUE_SOURCE_TEMPLATE
+# Roles eligible to move each ad edge. Snap uses them per edge; cue-pair uses
+# the start set as openers and the end set as closers, so the all-boundary case
+# behaves as before and a 'start' cue can only open while an 'end' can only close.
+AUDIO_CUE_START_EDGE_ROLES = ('start', 'boundary')
+AUDIO_CUE_END_EDGE_ROLES = ('end', 'boundary')
+
 # ============================================================
 # Audio Processing
 # ============================================================

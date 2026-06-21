@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS podcasts (
     auto_process_override TEXT,
     language_override TEXT,
     title_override TEXT,
+    detection_mode TEXT,
     skip_second_pass INTEGER DEFAULT 0,
     max_episodes INTEGER,
     only_expose_processed_episodes INTEGER,
@@ -299,6 +300,79 @@ CREATE TABLE IF NOT EXISTS ad_reviewer_log (
 );
 CREATE INDEX IF NOT EXISTS idx_ad_reviewer_log_episode ON ad_reviewer_log(episode_id);
 CREATE INDEX IF NOT EXISTS idx_ad_reviewer_log_podcast ON ad_reviewer_log(podcast_id);
+
+-- audio_cue_templates (per-feed user-defined ding/stinger templates, #350)
+-- mfcc_blob: float32 little-endian, shape (n_frames, n_coeffs) row-major.
+--   Frames are 25 ms / 10 ms hop @ sample_rate Hz. n_coeffs stored separately.
+-- pcm_blob: raw captured window, int16 little-endian mono @ pcm_sample_rate.
+--   Source of truth so a template can be re-derived if MFCC params change or
+--   exported as a lossless WAV. Nullable for rows imported without raw PCM.
+-- scope: 'podcast' (this feed) or 'network' (all feeds sharing network_id).
+--   No 'global' tier -- a cue only matches a show using the exact same sound.
+CREATE TABLE IF NOT EXISTS audio_cue_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    podcast_id INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    source_episode_id TEXT,
+    source_offset_s REAL NOT NULL,
+    duration_s REAL NOT NULL,
+    sample_rate INTEGER NOT NULL,
+    n_coeffs INTEGER NOT NULL,
+    mfcc_blob BLOB NOT NULL,
+    pcm_blob BLOB,
+    pcm_sample_rate INTEGER,
+    scope TEXT NOT NULL DEFAULT 'podcast' CHECK(scope IN ('network', 'podcast')),
+    network_id TEXT,
+    cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary' CHECK(cue_type IN ('ad_break_boundary', 'ad_break_start', 'ad_break_end', 'show_intro', 'show_outro')),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    created_by TEXT DEFAULT 'user',
+    FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cue_templates_feed ON audio_cue_templates(podcast_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_cue_templates_scope ON audio_cue_templates(scope, network_id, podcast_id) WHERE enabled = 1;
+
+-- cue_detections (per-cue telemetry, #350 follow-up). One row per template cue
+-- the matcher surfaced for an episode, with the match score and how detection
+-- used it (snap / pair / none) plus the user's review verdict. Advisory only:
+-- nothing here changes the cut list; it lets the user judge a feed's cues and
+-- tune thresholds. Rows for an episode are replaced on reprocess.
+CREATE TABLE IF NOT EXISTS cue_detections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    podcast_id INTEGER NOT NULL,
+    episode_id TEXT NOT NULL,
+    template_id INTEGER,
+    label TEXT,
+    cue_type TEXT,
+    role TEXT,
+    source TEXT NOT NULL DEFAULT 'template',
+    start_s REAL NOT NULL,
+    end_s REAL NOT NULL,
+    match_score REAL,
+    confidence REAL,
+    outcome TEXT NOT NULL DEFAULT 'none' CHECK(outcome IN ('snap', 'pair', 'none')),
+    verdict TEXT NOT NULL DEFAULT 'pending' CHECK(verdict IN ('pending', 'confirmed', 'rejected')),
+    created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cue_detections_episode ON cue_detections(episode_id);
+CREATE INDEX IF NOT EXISTS idx_cue_detections_feed ON cue_detections(podcast_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cue_detections_template ON cue_detections(template_id);
+
+-- Cached result of the on-demand "find recurring sounds" scan (#350 follow-up).
+-- The scan decodes the whole episode and is slow (90s+ on a long show), so it
+-- runs in a background thread and the API polls this row instead of blocking
+-- the request past the proxy timeout. One row per (feed, episode).
+CREATE TABLE IF NOT EXISTS cue_candidate_scans (
+    podcast_id INTEGER NOT NULL,
+    episode_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scanning' CHECK(status IN ('scanning', 'ready', 'error')),
+    candidates_json TEXT,
+    error TEXT,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    PRIMARY KEY (podcast_id, episode_id),
+    FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
+);
 """
 
 # Indexes that depend on columns added by migrations - created separately

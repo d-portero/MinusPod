@@ -16,6 +16,7 @@ export interface Feed {
   autoProcessOverride?: boolean | null;
   languageOverride?: string | null;
   titleOverride?: string | null;
+  detectionMode?: string | null;
   maxEpisodes?: number | null;
   onlyExposeProcessedEpisodes?: boolean | null;
 }
@@ -46,6 +47,7 @@ export interface Episode {
   duration?: number;
   status: 'discovered' | 'pending' | 'processing' | 'completed' | 'failed' | 'permanently_failed';
   ad_count?: number;
+  hasOriginalAudio?: boolean;
 }
 
 export interface EpisodeDetail extends Episode {
@@ -63,6 +65,7 @@ export interface EpisodeDetail extends Episode {
   adMarkers?: AdSegment[];
   rejectedAdMarkers?: AdSegment[];
   corrections?: EpisodeCorrection[];
+  cueDetections?: CueDetection[];
   originalDuration?: number;
   newDuration?: number;
   timeSaved?: number;
@@ -76,6 +79,24 @@ export interface EpisodeDetail extends Episode {
   inputTokens?: number;
   outputTokens?: number;
   llmCost?: number;
+}
+
+// Per-cue detection telemetry (#350 follow-up). One row per template cue the
+// matcher surfaced, with how detection used it and the user's review verdict.
+// Advisory only -- a verdict never changes the cut list.
+export interface CueDetection {
+  id: number;
+  template_id?: number | null;
+  label?: string | null;
+  cue_type?: string | null;
+  role?: string | null;
+  source: string;
+  start_s: number;
+  end_s: number;
+  match_score?: number | null;
+  confidence?: number | null;
+  outcome: 'snap' | 'pair' | 'none';
+  verdict: 'pending' | 'confirmed' | 'rejected';
 }
 
 export interface AdValidation {
@@ -100,7 +121,9 @@ export interface AdSegment {
   confidence: number;
   reason?: string;
   sponsor?: string;
-  detection_stage?: 'first_pass' | 'claude' | 'fingerprint' | 'text_pattern' | 'language' | 'verification' | 'manual';
+  detection_stage?: 'first_pass' | 'claude' | 'fingerprint' | 'text_pattern' | 'language' | 'verification' | 'manual' | 'cue_pair';
+  // Present when an audio cue snapped this ad's start/end edge (#350).
+  cue_snap?: { start?: Record<string, unknown>; end?: Record<string, unknown> };
   validation?: AdValidation;
   // Ad reviewer (issue #197) -- populated only when the reviewer ran on this ad.
   reviewer_verdict?: 'confirmed' | 'adjust' | 'reject' | 'resurrect' | 'failure';
@@ -175,6 +198,14 @@ export interface Settings {
   audioCueFreqMaxHz: SettingValueNumber;
   audioCueProminenceDb: SettingValueNumber;
   audioCueMinConfidence: SettingValueNumber;
+  audioCueCreateFromPairs: SettingValueBoolean;
+  audioCueTemplateScore: SettingValueNumber;
+  audioCueSnapConfidence: SettingValueNumber;
+  audioCueCaptureMinSeconds: SettingValueNumber;
+  audioCueCaptureMaxSeconds: SettingValueNumber;
+  audioCuePairConfidence: SettingValueNumber;
+  audioCuePairMinBreakSeconds: SettingValueNumber;
+  audioCuePairMaxBreakSeconds: SettingValueNumber;
   positionalPriorEnabled: SettingValueBoolean;
   vttTranscriptsEnabled: SettingValueBoolean;
   chaptersEnabled: SettingValueBoolean;
@@ -233,6 +264,14 @@ export interface Settings {
     audioCueFreqMaxHz: number;
     audioCueProminenceDb: number;
     audioCueMinConfidence: number;
+    audioCueCreateFromPairs: boolean;
+    audioCueTemplateScore: number;
+    audioCueSnapConfidence: number;
+    audioCueCaptureMinSeconds: number;
+    audioCueCaptureMaxSeconds: number;
+    audioCuePairConfidence: number;
+    audioCuePairMinBreakSeconds: number;
+    audioCuePairMaxBreakSeconds: number;
     positionalPriorEnabled: boolean;
   };
 }
@@ -265,6 +304,14 @@ export interface UpdateSettingsPayload {
   audioCueFreqMaxHz?: number;
   audioCueProminenceDb?: number;
   audioCueMinConfidence?: number;
+  audioCueCreateFromPairs?: boolean;
+  audioCueTemplateScore?: number;
+  audioCueSnapConfidence?: number;
+  audioCueCaptureMinSeconds?: number;
+  audioCueCaptureMaxSeconds?: number;
+  audioCuePairConfidence?: number;
+  audioCuePairMinBreakSeconds?: number;
+  audioCuePairMaxBreakSeconds?: number;
   positionalPriorEnabled?: boolean;
   vttTranscriptsEnabled?: boolean;
   chaptersEnabled?: boolean;

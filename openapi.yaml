@@ -12,7 +12,7 @@ info:
     - Monitor system status and trigger cleanup operations
     - Manage cross-episode ad patterns with network and podcast scope
     - Submit corrections to improve ad detection accuracy
-  version: 2.8.15
+  version: 2.13.1
   contact:
     name: MinusPod
   license:
@@ -57,6 +57,8 @@ tags:
     description: System status and maintenance
   - name: Search
     description: Full-text search across all content
+  - name: AudioCueTemplates
+    description: Per-podcast learned audio-cue (ding/stinger) templates (#350)
 
 paths:
   /auth/status:
@@ -454,7 +456,11 @@ paths:
                   type:
                     - string
                     - 'null'
-                  description: Override network ID (null to use auto-detected)
+                  description: >-
+                    Network to assign this feed to: a known network id, or a
+                    custom name that links feeds sharing the same value (null
+                    uses the auto-detected network). The effective network is
+                    the override when set, else the auto-detected one.
                 daiPlatform:
                   type: string
                   description: DAI platform identifier (e.g., megaphone, acast)
@@ -474,6 +480,15 @@ paths:
                     - 'null'
                   maxLength: 500
                   description: Per-feed display title shown to subscribers in the generated RSS feed (issue 375). Survives RSS refreshes. Null or empty clears it and falls back to the source feed title.
+                detectionMode:
+                  type:
+                    - string
+                    - 'null'
+                  enum:
+                    - blacklist
+                    - keep_content
+                    - null
+                  description: Per-feed ad-detection mode. 'keep_content' (experimental) has the LLM label show content and removes everything else; null or 'blacklist' is the default, which labels and removes ads.
                 maxEpisodes:
                   type:
                     - integer
@@ -2897,6 +2912,67 @@ paths:
                     (Pascal GTX 10xx, Maxwell GTX 9xx) need `int8` or `float32`.
                     See the README section "GPU Compute Type" for the per-GPU table.
                   example: auto
+                audioCueDetectionEnabled:
+                  type: boolean
+                  description: Master toggle for audio cue detection (#350). Off by default.
+                audioCueFreqMinHz:
+                  type: number
+                  description: Low edge (Hz) of the spectral fallback cue band.
+                  minimum: 20
+                  maximum: 20000
+                audioCueFreqMaxHz:
+                  type: number
+                  description: High edge (Hz) of the spectral fallback cue band. Must exceed the low edge.
+                  minimum: 20
+                  maximum: 20000
+                audioCueProminenceDb:
+                  type: number
+                  description: dB above the in-band baseline for a burst to count (spectral fallback).
+                  minimum: 1
+                  maximum: 40
+                audioCueMinConfidence:
+                  type: number
+                  description: Drop cues weaker than this.
+                  minimum: 0
+                  maximum: 1
+                audioCueTemplateScore:
+                  type: number
+                  description: ZNCC score a learned cue template must reach on another episode (default 0.75).
+                  minimum: 0
+                  maximum: 0.99
+                audioCueSnapConfidence:
+                  type: number
+                  description: Min cue confidence before a cue may move an ad edge (default 0.80).
+                  minimum: 0
+                  maximum: 1
+                audioCueCaptureMinSeconds:
+                  type: number
+                  description: Shortest cue a user may bracket (default 0.2s).
+                  minimum: 0.05
+                  maximum: 10
+                audioCueCaptureMaxSeconds:
+                  type: number
+                  description: Longest cue a user may bracket (default 4s).
+                  minimum: 0.05
+                  maximum: 30
+                audioCuePairConfidence:
+                  type: number
+                  description: Min cue confidence to synthesize an ad from a cue pair (default 0.85).
+                  minimum: 0
+                  maximum: 1
+                audioCuePairMinBreakSeconds:
+                  type: number
+                  description: Shortest cue-pair break (default 30s).
+                  minimum: 1
+                  maximum: 600
+                audioCuePairMaxBreakSeconds:
+                  type: number
+                  description: Longest cue-pair break (default 480s).
+                  minimum: 1
+                  maximum: 3600
+                audioCueCreateFromPairs:
+                  type: boolean
+                  description: Opt-in cue-pair ad synthesis. Off by default.
                 positionalPriorEnabled:
                   type: boolean
                   description: |
@@ -4491,6 +4567,607 @@ paths:
         '400':
           description: confirm flag missing or not true
 
+  /feeds/{slug}/cue-templates:
+    get:
+      tags: [AudioCueTemplates]
+      summary: List a feed's audio-cue templates
+      description: >
+        Returns the feed's own templates plus any network-scope templates
+        shared from sibling feeds on the same network. Shared templates carry
+        `owned: false` and are read-only in the UI (managed on the feed that
+        created them).
+      operationId: listCueTemplates
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Templates for the feed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CueTemplate'
+        '404':
+          description: Feed not found
+    post:
+      tags: [AudioCueTemplates]
+      summary: Mark a new cue template from a window of an episode
+      description: >
+        Requires the episode's original (un-cut) audio to still be retained.
+        Decodes the marked window, extracts an MFCC fingerprint, and stores the
+        raw PCM as the source of truth. Selection must be 0.2 to 4 seconds.
+      operationId: createCueTemplate
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [episodeId, startS, endS]
+              properties:
+                episodeId:
+                  type: string
+                startS:
+                  type: number
+                endS:
+                  type: number
+                cueType:
+                  type: string
+                  enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+                  default: ad_break_boundary
+                  description: >-
+                    Fixed cue type chosen from a dropdown (not freeform). The
+                    type sets the consistent label fed to the LLM and the
+                    matching role: ad_break_start/end snap that edge, ad_break_boundary
+                    snaps both, show_intro/show_outro never snap or pair and only
+                    tell the model the sound is the show open/close, not an ad.
+                scope:
+                  type: string
+                  enum: [podcast, network]
+                  default: podcast
+                networkId:
+                  type: string
+                  description: Required when scope is network
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template:
+                    $ref: '#/components/schemas/CueTemplate'
+        '400':
+          description: Invalid selection or cueType
+        '404':
+          description: Feed or original audio not found
+
+  /cue-templates/{templateId}:
+    patch:
+      tags: [AudioCueTemplates]
+      summary: Rename, enable/disable, or change the scope of a template
+      operationId: updateCueTemplate
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cueType:
+                  type: string
+                  enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+                  description: Change the cue type (also resets the derived label)
+                enabled:
+                  type: boolean
+                scope:
+                  type: string
+                  enum: [podcast, network]
+                networkId:
+                  type: string
+                  description: Required when promoting to network scope
+      responses:
+        '200':
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template:
+                    $ref: '#/components/schemas/CueTemplate'
+        '404':
+          description: Template not found
+    delete:
+      tags: [AudioCueTemplates]
+      summary: Delete a cue template
+      operationId: deleteCueTemplate
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  id:
+                    type: integer
+        '404':
+          description: Template not found
+
+  /cue-templates/{templateId}/export:
+    get:
+      tags: [AudioCueTemplates]
+      summary: Export a template as a portable zip (lossless WAV + JSON manifest)
+      operationId: exportCueTemplate
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Zip archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Template not found
+        '422':
+          description: Template has no raw audio to export
+
+  /feeds/{slug}/cue-templates/import:
+    post:
+      tags: [AudioCueTemplates]
+      summary: Import a cue template zip into a feed
+      description: >
+        The MFCC is recomputed from the WAV (a foreign blob is never trusted).
+        Imports land as podcast scope. Sample-rate and channel mismatches are
+        hard-rejected with no resampling.
+      operationId: importCueTemplate
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Template imported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template:
+                    $ref: '#/components/schemas/CueTemplate'
+        '400':
+          description: Invalid zip, manifest, or audio
+        '404':
+          description: Feed not found
+
+  /feeds/{slug}/episodes/{episode_id}/cue-scan:
+    post:
+      tags: [AudioCueTemplates]
+      summary: Run every enabled template against an episode (diagnostic)
+      operationId: cueScanEpisode
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: episode_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scoreThreshold:
+                  type: number
+                  description: Override the global threshold for this run only (clamped to 0-0.99)
+                  minimum: 0
+                  maximum: 0.99
+      responses:
+        '200':
+          description: Per-template peak scores and match times
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodeId:
+                    type: string
+                  thresholdUsed:
+                    type: number
+                  elapsedSeconds:
+                    type: number
+                  templates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        label:
+                          type: string
+                        durationS:
+                          type: number
+                        peakScore:
+                          type: number
+                        matchCount:
+                          type: integer
+                        matches:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/CueMatch'
+        '400':
+          description: Feed has no enabled templates
+        '404':
+          description: Feed or original audio not found
+
+  /feeds/{slug}/episodes/{episode_id}/cue-template-preview:
+    post:
+      tags: [AudioCueTemplates]
+      summary: Run a single template against an episode
+      operationId: previewCueTemplate
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: episode_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [templateId]
+              properties:
+                templateId:
+                  type: integer
+      responses:
+        '200':
+          description: Match times for the template
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templateId:
+                    type: integer
+                  thresholdUsed:
+                    type: number
+                  peakScore:
+                    type: number
+                  matches:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CueMatch'
+        '404':
+          description: Template, feed, or original audio not found
+
+  /feeds/{slug}/episodes/{episode_id}/cue-loud-spots:
+    get:
+      tags: [AudioCueTemplates]
+      summary: Template-free energy "loud spots" for the capture UI
+      description: >
+        Runs the band-passed energy detector over an episode's original audio
+        and returns candidate loud spots (not detected cues) as jump-to markers
+        so the user can find a cue to bracket.
+      operationId: episodeLoudSpots
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: episode_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Candidate loud spots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodeId:
+                    type: string
+                  loudSpots:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: number
+                        end:
+                          type: number
+                        prominenceDb:
+                          type: number
+                          nullable: true
+        '404':
+          description: Feed or original audio not found
+
+  /feeds/{slug}/episodes/{episode_id}/detected-cues:
+    get:
+      tags: [AudioCueTemplates]
+      summary: Audio cues already found on an episode, as template candidates
+      description: |
+        Merges the episode's persisted cue signals (template + spectral) with a
+        template-free loud-spot pass over the original audio, labeled by source.
+        Each is a candidate the user can promote into a per-feed cue template.
+        Advisory only; nothing here changes the cut.
+      operationId: episodeDetectedCues
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: episode_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detected cue candidates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodeId:
+                    type: string
+                  hasOriginalAudio:
+                    type: boolean
+                    description: False if the original audio was not retained (then loud spots are omitted and templates cannot be made)
+                  detectedCues:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: number
+                        end:
+                          type: number
+                        source:
+                          type: string
+                          enum: [template, spectral, loud_spot]
+                        label:
+                          type: string
+                          nullable: true
+                        cueType:
+                          type: string
+                          nullable: true
+                        score:
+                          type: number
+                          nullable: true
+                        prominenceDb:
+                          type: number
+                          nullable: true
+        '404':
+          description: Feed not found
+
+  /feeds/{slug}/episodes/{episode_id}/cue-candidates:
+    get:
+      tags: [AudioCueTemplates]
+      summary: Find recurring sounds in an episode as cue-template candidates
+      description: |
+        On-demand scan. Decodes the original audio, detects loud bursts,
+        computes each burst's MFCC, and clusters by acoustic similarity;
+        returns only sounds that repeat (a real cue recurs; a laugh or music
+        hit does not). The decode is slow (90s+ on a long episode), so the scan
+        runs in a background thread and the result is cached. Poll this endpoint
+        until `status` is `ready` (candidates attached) or `error`. Pass
+        `rescan=1` to force a fresh scan after an error.
+      operationId: episodeCueCandidates
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: episode_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: rescan
+          in: query
+          required: false
+          description: Force a fresh scan, ignoring any cached result
+          schema:
+            type: string
+            enum: ['1', 'true', 'yes']
+      responses:
+        '200':
+          description: Scan status, with candidates once ready (most-recurring first)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodeId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [scanning, ready, error]
+                    description: |
+                      `scanning` (poll again shortly), `ready` (candidates
+                      attached), or `error` (scan failed; see `error`).
+                  error:
+                    type: string
+                    description: Present when status is error
+                  candidates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: number
+                        end:
+                          type: number
+                        prominenceDb:
+                          type: number
+                          nullable: true
+                        count:
+                          type: integer
+                          description: How many times the sound recurs in the episode
+        '404':
+          description: Feed or original audio not found
+
+  /cue-detections/{detectionId}/verdict:
+    post:
+      tags: [AudioCueTemplates]
+      summary: Confirm, reject, or reset a cue detection's review verdict
+      description: |
+        Advisory template-quality signal only. A verdict never changes an
+        episode's cut list; it records whether a template cue matched a real ad
+        boundary so a feed's cues can be judged and thresholds tuned.
+      operationId: setCueDetectionVerdict
+      parameters:
+        - name: detectionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verdict]
+              properties:
+                verdict:
+                  type: string
+                  enum: [pending, confirmed, rejected]
+      responses:
+        '200':
+          description: Updated verdict
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  verdict:
+                    type: string
+                    enum: [pending, confirmed, rejected]
+        '400':
+          description: Invalid verdict
+        '404':
+          description: Cue detection not found
+
+  /feeds/{slug}/cue-detections/advisory:
+    get:
+      tags: [AudioCueTemplates]
+      summary: Per-feed cue health summary
+      description: Outcome and verdict counts, match-score range, and confirm rate across the feed's processed episodes.
+      operationId: getCueFeedAdvisory
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Per-feed cue advisory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CueAdvisory'
+        '404':
+          description: Feed not found
+
+  /cue-detections/aggregate:
+    get:
+      tags: [AudioCueTemplates]
+      summary: Global cue telemetry for threshold tuning
+      description: The per-feed advisory shape across all feeds, plus a match-score histogram.
+      operationId: getCueDetectionsAggregate
+      responses:
+        '200':
+          description: Aggregate cue telemetry
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CueAdvisory'
+                  - type: object
+                    properties:
+                      scoreHistogram:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            scoreFrom:
+                              type: number
+                            count:
+                              type: integer
+
 security:
   - sessionCookie: []
 
@@ -4562,6 +5239,63 @@ components:
         example: 550e8400-e29b-41d4-a716-446655440000
 
   schemas:
+    CueMatch:
+      type: object
+      description: One cue match within an episode
+      properties:
+        start:
+          type: number
+        end:
+          type: number
+        confidence:
+          type: number
+        score:
+          type: number
+    CueTemplate:
+      type: object
+      description: A learned per-podcast audio-cue template (metadata; blobs omitted)
+      properties:
+        id:
+          type: integer
+        podcastId:
+          type: integer
+        label:
+          type: string
+          description: Canonical phrase derived from cueType (shown to the LLM and UI)
+        cueType:
+          type: string
+          enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+          default: ad_break_boundary
+        sourceEpisodeId:
+          type: string
+          nullable: true
+        sourceOffsetS:
+          type: number
+        durationS:
+          type: number
+        sampleRate:
+          type: integer
+        nCoeffs:
+          type: integer
+        scope:
+          type: string
+          enum: [podcast, network]
+          default: podcast
+        networkId:
+          type: string
+          nullable: true
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+        createdBy:
+          type: string
+          nullable: true
+        owned:
+          type: boolean
+          description: >
+            Listing only. False for a network template shared from another feed
+            in this network (read-only here, managed on the feed that created it).
     BulkPatternOp:
       type: object
       required: [confirm, expected_count]
@@ -4700,6 +5434,15 @@ components:
             - string
             - 'null'
           description: Per-feed display title shown to subscribers in the generated RSS feed (issue 375); null falls back to the source feed title.
+        detectionMode:
+          type:
+            - string
+            - 'null'
+          enum:
+            - blacklist
+            - keep_content
+            - null
+          description: Per-feed ad-detection mode. 'keep_content' (experimental) labels show content and removes everything else; null or 'blacklist' is the default ad-removal behavior.
         maxEpisodes:
           type:
             - integer
@@ -4770,6 +5513,11 @@ components:
               description: Ads flagged but kept in audio (REJECT decision due to low confidence, invalid duration, etc.)
               items:
                 $ref: '#/components/schemas/AdMarker'
+            cueDetections:
+              type: array
+              description: Template cue detections for this episode (advisory telemetry; never changes the cut)
+              items:
+                $ref: '#/components/schemas/CueDetection'
             transcriptAvailable:
               type: boolean
             originalTranscriptAvailable:
@@ -4790,6 +5538,78 @@ components:
             llmCost:
               type: number
               description: Estimated LLM cost in USD for processing this episode
+
+    CueDetection:
+      type: object
+      description: One template cue the matcher surfaced for an episode (advisory telemetry).
+      properties:
+        id:
+          type: integer
+        template_id:
+          type: integer
+          nullable: true
+        label:
+          type: string
+          nullable: true
+        cue_type:
+          type: string
+          nullable: true
+          enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+        role:
+          type: string
+          nullable: true
+        source:
+          type: string
+          description: Always 'template'; spectral cues are not recorded
+        start_s:
+          type: number
+        end_s:
+          type: number
+        match_score:
+          type: number
+          nullable: true
+        confidence:
+          type: number
+          nullable: true
+        outcome:
+          type: string
+          enum: [snap, pair, none]
+          description: How detection used the cue
+        verdict:
+          type: string
+          enum: [pending, confirmed, rejected]
+
+    CueAdvisory:
+      type: object
+      description: Aggregate cue telemetry for a feed (or globally).
+      properties:
+        total:
+          type: integer
+        snapped:
+          type: integer
+        paired:
+          type: integer
+        unused:
+          type: integer
+        confirmed:
+          type: integer
+        rejected:
+          type: integer
+        pending:
+          type: integer
+        avgScore:
+          type: number
+          nullable: true
+        minScore:
+          type: number
+          nullable: true
+        maxScore:
+          type: number
+          nullable: true
+        confirmRate:
+          type: number
+          nullable: true
+          description: confirmed / (confirmed + rejected), or null if none reviewed
 
     AdMarker:
       type: object
@@ -5033,6 +5853,110 @@ components:
                 Compute precision for the local faster-whisper backend. `auto` resolves to float16
                 on CUDA and int8 on CPU; older GPUs automatically fall back through the chain
                 int8_float16 -> int8 -> float32 when float16 init fails.
+            isDefault:
+              type: boolean
+        audioCueDetectionEnabled:
+          type: object
+          description: Master toggle for audio cue detection (templates + spectral fallback). Off by default.
+          properties:
+            value:
+              type: boolean
+            isDefault:
+              type: boolean
+        audioCueFreqMinHz:
+          type: object
+          description: Low edge (Hz) of the spectral fallback's cue band.
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueFreqMaxHz:
+          type: object
+          description: High edge (Hz) of the spectral fallback's cue band.
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueProminenceDb:
+          type: object
+          description: dB above the in-band baseline a burst must rise to count as a cue (spectral fallback).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueMinConfidence:
+          type: object
+          description: Drop cues weaker than this. The model never sees a cue below 0.80.
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueTemplateScore:
+          type: object
+          description: ZNCC score (0-0.99, default 0.75) a learned cue template must reach to register on another episode.
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueSnapConfidence:
+          type: object
+          description: Min cue confidence before a cue may move an ad edge (default 0.80).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueCaptureMinSeconds:
+          type: object
+          description: Shortest cue a user may bracket, seconds (default 0.2).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueCaptureMaxSeconds:
+          type: object
+          description: Longest cue a user may bracket, seconds (default 4).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCuePairConfidence:
+          type: object
+          description: Min cue confidence to synthesize an ad from a cue pair (default 0.85).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCuePairMinBreakSeconds:
+          type: object
+          description: Shortest cue-pair break, seconds (default 30).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCuePairMaxBreakSeconds:
+          type: object
+          description: Longest cue-pair break, seconds (default 480).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueCreateFromPairs:
+          type: object
+          description: Opt-in. Synthesize a cue-only ad when two high-confidence cues bracket a break the LLM missed (still reviewed). Off by default.
+          properties:
+            value:
+              type: boolean
             isDefault:
               type: boolean
         positionalPriorEnabled:

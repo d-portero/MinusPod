@@ -65,6 +65,11 @@ def list_episodes(slug):
 
     # Get query params
     status = request.args.get('status', 'all')
+    # The API emits 'completed' as the alias for processed episodes (see the
+    # output mapping below), so accept that alias as a filter value too;
+    # otherwise filtering by the status the client was handed returns nothing.
+    if status == EpisodeStatus.COMPLETED.value:
+        status = EpisodeStatus.PROCESSED.value
     limit = min(int(request.args.get('limit', 25)), 500)
     offset = int(request.args.get('offset', 0))
     sort_by = request.args.get('sort_by', 'published_at')
@@ -94,6 +99,9 @@ def list_episodes(slug):
             'published': ep.get('published_at') or ep['created_at'],
             'duration': ep['original_duration'],
             'ad_count': ep['ads_removed'],
+            # True when this episode's original audio is still on disk (required
+            # to mark cue templates or replay original audio) (#350).
+            'hasOriginalAudio': bool(ep.get('original_file')),
             # Additional fields for backward compatibility
             'episodeId': ep['episode_id'],
             'createdAt': ep['created_at'],
@@ -170,6 +178,12 @@ def get_episode(slug, episode_id):
     # Get corrections for this episode
     corrections = db.get_episode_corrections(episode_id)
 
+    # Per-cue detection telemetry (advisory: template matches with score, how
+    # detection used each cue, and the user's verdict). Empty for episodes
+    # processed before cue templates existed.
+    cue_detections = db.list_cue_detections_for_episode(
+        episode['podcast_id'], episode_id)
+
     return json_response({
         'id': episode['episode_id'],
         'episodeId': episode['episode_id'],
@@ -195,6 +209,7 @@ def get_episode(slug, episode_id):
         'adMarkers': ad_markers,
         'rejectedAdMarkers': rejected_ad_markers,
         'corrections': corrections,
+        'cueDetections': cue_detections,
         'adDetectionStatus': episode.get('ad_detection_status'),
         'transcript': episode.get('transcript_text'),
         'transcriptAvailable': bool(episode.get('transcript_text')),

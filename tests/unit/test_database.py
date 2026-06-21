@@ -2,6 +2,7 @@
 import pytest
 import sys
 import os
+import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
@@ -45,6 +46,47 @@ class TestPodcastOperations:
         podcast = temp_db.get_podcast_by_slug('nonexistent-slug')
 
         assert podcast is None
+
+    def test_cue_candidate_scan_state_machine(self, temp_db):
+        pid = temp_db.create_podcast('scan-feed', 'http://x/sf.xml', 'SF')
+        # First claim starts a scan; a second concurrent claim sees it running.
+        assert temp_db.claim_cue_candidate_scan(pid, 'ep1', 900) == 'started'
+        assert temp_db.claim_cue_candidate_scan(pid, 'ep1', 900) == 'scanning'
+        # Result makes it readable; claim returns 'ready' and the row round-trips.
+        temp_db.save_cue_candidate_scan_result(
+            pid, 'ep1', [{'start': 1.0, 'end': 2.0, 'prominenceDb': 3.0, 'count': 4}])
+        assert temp_db.claim_cue_candidate_scan(pid, 'ep1', 900) == 'ready'
+        row = temp_db.get_cue_candidate_scan(pid, 'ep1')
+        assert row['status'] == 'ready'
+        assert json.loads(row['candidates_json'])[0]['count'] == 4
+        # force reclaims a ready row for a fresh scan.
+        assert temp_db.claim_cue_candidate_scan(pid, 'ep1', 900, force=True) == 'started'
+
+    def test_cue_candidate_scan_error_and_staleness(self, temp_db):
+        pid = temp_db.create_podcast('scan-feed2', 'http://x/sf2.xml', 'SF2')
+        temp_db.claim_cue_candidate_scan(pid, 'ep2', 900)
+        temp_db.save_cue_candidate_scan_error(pid, 'ep2', 'boom')
+        # A fresh error is reported (so the UI can stop polling), not re-run.
+        assert temp_db.claim_cue_candidate_scan(pid, 'ep2', 900) == 'error'
+        # force reclaims the error for a retry.
+        assert temp_db.claim_cue_candidate_scan(pid, 'ep2', 900, force=True) == 'started'
+        # A scan older than the stale window is reclaimable without force.
+        assert temp_db.claim_cue_candidate_scan(pid, 'ep2', 0) == 'started'
+
+    def test_get_custom_network_overrides(self, temp_db):
+        """Distinct non-empty network_id_override values across feeds."""
+        temp_db.create_podcast('show-a', 'http://x/a.xml', 'A')
+        temp_db.create_podcast('show-b', 'http://x/b.xml', 'B')
+        temp_db.create_podcast('show-c', 'http://x/c.xml', 'C')
+        temp_db.create_podcast('show-d', 'http://x/d.xml', 'D')
+        # Two feeds share one custom network; one is blank; one has none.
+        temp_db.update_podcast('show-a', network_id_override='Acme Audio')
+        temp_db.update_podcast('show-b', network_id_override='Acme Audio')
+        temp_db.update_podcast('show-c', network_id_override='   ')
+
+        result = temp_db.get_custom_network_overrides()
+
+        assert result == ['Acme Audio']
 
     def test_update_podcast(self, temp_db):
         """Update podcast fields."""
@@ -503,6 +545,25 @@ class TestResetFailedQueueItems:
              'Test', status, attempts, f'-{minutes_ago} minutes')
         )
         conn.commit()
+
+    def test_claim_next_marks_processing_and_is_exclusive(self, temp_db):
+        """claim_next_queued_episode atomically claims each pending row once."""
+        pid = self._setup_podcast_and_episode(temp_db, 'cpod', 'cep1', 'pending')
+        temp_db.upsert_episode('cpod', 'cep2',
+                               original_url='https://example.com/cep2.mp3', status='pending')
+        self._queue_item(temp_db, pid, 'cep1', status='pending')
+        self._queue_item(temp_db, pid, 'cep2', status='pending')
+
+        first = temp_db.claim_next_queued_episode()
+        second = temp_db.claim_next_queued_episode()
+        third = temp_db.claim_next_queued_episode()
+
+        assert first is not None and second is not None
+        assert first['status'] == 'processing' and second['status'] == 'processing'
+        assert {first['episode_id'], second['episode_id']} == {'cep1', 'cep2'}
+        # Both claimed, nothing pending left.
+        assert third is None
+        assert temp_db.get_next_queued_episode() is None
 
     def test_resets_eligible_transient_failure(self, temp_db):
         """Failed queue items with transient episode failure should be reset to pending."""

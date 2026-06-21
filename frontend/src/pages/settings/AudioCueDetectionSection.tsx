@@ -8,6 +8,14 @@ export interface AudioCueState {
   freqMaxHz: number;
   prominenceDb: number;
   minConfidence: number;
+  templateScore: number;
+  createFromPairs: boolean;
+  snapConfidence: number;
+  captureMinSeconds: number;
+  captureMaxSeconds: number;
+  pairConfidence: number;
+  pairMinBreakSeconds: number;
+  pairMaxBreakSeconds: number;
 }
 
 interface AudioCueDetectionSectionProps {
@@ -15,7 +23,10 @@ interface AudioCueDetectionSectionProps {
   onChange: (next: AudioCueState) => void;
 }
 
-type NumericKey = 'freqMinHz' | 'freqMaxHz' | 'prominenceDb' | 'minConfidence';
+type NumericKey =
+  | 'freqMinHz' | 'freqMaxHz' | 'prominenceDb' | 'minConfidence' | 'templateScore'
+  | 'snapConfidence' | 'captureMinSeconds' | 'captureMaxSeconds'
+  | 'pairConfidence' | 'pairMinBreakSeconds' | 'pairMaxBreakSeconds';
 
 const inputClass =
   'w-28 px-3 py-1.5 rounded-lg border border-input bg-background text-foreground ' +
@@ -37,6 +48,30 @@ function AudioCueDetectionSection({ audioCue, onChange }: AudioCueDetectionSecti
     if (v !== undefined) update(key, v);
   };
 
+  const numRow = (
+    key: NumericKey, id: string, label: string,
+    lo: number, hi: number, step: number, fallback: number, hint: string,
+    parse: (s: string) => number = parseFloat,
+  ) => (
+    <div>
+      <label htmlFor={id} className="block text-sm font-medium text-foreground mb-2">{label}</label>
+      <div className="flex items-center gap-3">
+        <input
+          type="number"
+          id={id}
+          value={audioCue[key]}
+          min={lo}
+          max={hi}
+          step={step}
+          onChange={(e) => numUpdate(key, e.target.value, lo, hi, fallback, parse)}
+          className="w-24 px-3 py-1.5 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+        />
+        <span className="text-sm text-muted-foreground">{lo} to {hi}</span>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">{hint}</p>
+    </div>
+  );
+
   return (
     <CollapsibleSection
       title="Audio Cue Detection"
@@ -55,7 +90,7 @@ function AudioCueDetectionSection({ audioCue, onChange }: AudioCueDetectionSecti
             </span>
           </label>
           <p className="mt-2 text-sm text-muted-foreground ml-14">
-            Adds one extra ffmpeg pass per episode to find a recurring non-spoken cue. The cue never marks an ad on its own; the model must still find ad content in the transcript. It only sharpens an ad's start time.
+            Adds one ffmpeg pass per episode to find a recurring non-spoken cue. The cue never marks an ad on its own - it only sharpens the boundary of an ad the model finds in the transcript.
           </p>
         </div>
 
@@ -135,8 +170,62 @@ function AudioCueDetectionSection({ audioCue, onChange }: AudioCueDetectionSecti
                 Drop cues weaker than this. The model is never shown a cue below 0.80 confidence regardless of this value.
               </p>
             </div>
+
+            <div>
+              <label htmlFor="audioCueTemplateScore" className="block text-sm font-medium text-foreground mb-2">
+                Template match score
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  id="audioCueTemplateScore"
+                  value={audioCue.templateScore}
+                  onChange={(e) => numUpdate('templateScore', e.target.value, 0, 0.99, 0.75, parseFloat)}
+                  min={0}
+                  max={0.99}
+                  step={0.05}
+                  className="w-24 px-3 py-1.5 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+                />
+                <span className="text-sm text-muted-foreground">0-0.99</span>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Match score a marked cue must reach to register on another episode. Lower catches more but risks false matches. Applies only to feeds with templates; otherwise the spectral knobs above are used.
+              </p>
+            </div>
+
+            <div className="border-t border-border pt-4 space-y-5">
+              <span className="block text-sm font-medium text-foreground">Advanced tuning</span>
+              {numRow('snapConfidence', 'audioCueSnapConfidence', 'Snap confidence floor', 0, 1, 0.05, 0.8,
+                'Minimum cue confidence before a cue may move an ad edge. Higher is stricter.')}
+              {numRow('captureMinSeconds', 'audioCueCaptureMinSeconds', 'Capture minimum length (s)', 0.05, 10, 0.05, 0.2,
+                'Shortest cue you may bracket; a floor that keeps very short sounds from matching everything.')}
+              {numRow('captureMaxSeconds', 'audioCueCaptureMaxSeconds', 'Capture maximum length (s)', 0.05, 30, 0.5, 4,
+                'Longest cue you may bracket.')}
+              {numRow('pairConfidence', 'audioCuePairConfidence', 'Cue-pair confidence floor', 0, 1, 0.05, 0.85,
+                'Minimum cue confidence to synthesize an ad from a cue pair. Higher than the snap floor because this creates an ad rather than refining one.')}
+              {numRow('pairMinBreakSeconds', 'audioCuePairMinBreakSeconds', 'Cue-pair minimum break (s)', 1, 600, 5, 30,
+                'Shortest span between two cues that may form a synthesized ad.')}
+              {numRow('pairMaxBreakSeconds', 'audioCuePairMaxBreakSeconds', 'Cue-pair maximum break (s)', 1, 3600, 30, 480,
+                'Longest span between two cues that may form a synthesized ad.')}
+            </div>
           </div>
         )}
+
+        <div className="border-t border-border pt-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <ToggleSwitch
+              checked={audioCue.createFromPairs}
+              onChange={(v) => update('createFromPairs', v)}
+              ariaLabel="Create ads from cue pairs"
+            />
+            <span className="text-sm font-medium text-foreground">
+              Create ads from cue pairs when the LLM misses a break
+            </span>
+          </label>
+          <p className="mt-2 text-sm text-muted-foreground ml-14">
+            When two high-confidence cues bracket a break the model missed, create a cue-only ad for the reviewer to check. Off by default - turn it on once you trust the matcher on this feed.
+          </p>
+        </div>
       </div>
     </CollapsibleSection>
   );
