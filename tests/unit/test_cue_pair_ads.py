@@ -176,3 +176,27 @@ def test_duplicate_cues_do_not_make_overlapping_ads():
     )
     ads = synthesize_ads_from_cue_pairs([], result)
     assert len(ads) == 1
+
+
+# ---------------------------------------------------------------------------
+# Short-episode max-break-fraction guard (C4 phantom-ad backstop)
+# ---------------------------------------------------------------------------
+
+def test_pair_rejected_when_span_exceeds_episode_fraction():
+    # On a short episode a pair within the absolute 480s cap can still bracket
+    # most of the show. The fraction guard rejects it: gap ~119.5s > 0.5 * 200s.
+    result = _result_with(_cue(100.0, 100.5), _cue(220.0, 220.5))
+    assert synthesize_ads_from_cue_pairs([], result, total_duration=200.0) == []
+
+
+def test_pair_kept_when_span_within_episode_fraction():
+    # Same pair on a long episode: 119.5s is well under 0.5 * 1000s, so it stands.
+    result = _result_with(_cue(100.0, 100.5), _cue(220.0, 220.5))
+    ads = synthesize_ads_from_cue_pairs([], result, total_duration=1000.0)
+    assert len(ads) == 1
+
+
+def test_fraction_guard_disabled_by_zero_total_duration():
+    # total_duration=0 (unknown) leaves only the absolute cap in force.
+    result = _result_with(_cue(100.0, 100.5), _cue(220.0, 220.5))
+    assert len(synthesize_ads_from_cue_pairs([], result, total_duration=0.0)) == 1

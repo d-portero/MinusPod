@@ -7,11 +7,12 @@ for host-read ads that follow similar scripts but aren't identical.
 """
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Optional, Dict, Tuple
 import json
 
-from config import DEFAULT_AD_DURATION_ESTIMATE
+from config import DEFAULT_AD_DURATION_ESTIMATE, LONG_AD_WARN
+from community_export import count_brand_occurrences, brand_match_candidates
 from utils.text import extract_text_from_segments
 from sponsor_normalize import get_or_create_known_sponsor
 from utils.constants import INVALID_SPONSOR_VALUES
@@ -66,6 +67,14 @@ BASE_AD_VOCABULARY = [
 
 # Paired boundary scanning
 MAX_SCAN_CHARS = 4000                 # ~4 minutes of speech, cap for paired boundary scan
+
+# Emitted matches longer than this (s) are validated against the sponsor brand
+# before being kept. The matcher emits the convex hull of every matched
+# fragment with no length cap, so a false-early anchor or a chained merge can
+# stretch a span minutes past the real ad; a span this long whose audio carries
+# no brand mention there is over-cut. Reuses LONG_AD_WARN (longest reasonable
+# single read); spans at or under it keep the matcher's existing behavior.
+MAX_MATCH_DURATION = LONG_AD_WARN
 
 # Proportional TF-IDF window sizing
 WINDOW_SIZES = [500, 1000, 1500, 2500]
@@ -357,6 +366,9 @@ class TextPatternMatcher:
 
         # Refine boundaries using intro/outro phrases
         matches = self._refine_boundaries(matches, segments, applicable_patterns)
+
+        # Trim/reject spans that ran past the real ad into show content
+        matches = self._constrain_overlong_spans(matches, segments)
 
         logger.info(
             f"Stage 2 (text pattern) considered {len(applicable_patterns)} patterns "
@@ -757,8 +769,16 @@ class TextPatternMatcher:
         current = matches[0]
 
         for match in matches[1:]:
-            # Check for overlap (within 5 seconds)
-            if match.start <= current.end + 5.0:
+            # Merge only matches for the same sponsor within 5s (case-folded;
+            # both None counts as same). Merging across sponsors lets one
+            # sponsor's bad anchor drag another's span outward and folds a
+            # co-located ad behind a single label; merging an unattributed
+            # match into a named ad lets brand-free content inherit the sponsor
+            # and ride along as ad. Distinct sponsors stay as separate spans.
+            same_sponsor = (
+                (current.sponsor or '').lower() == (match.sponsor or '').lower()
+            )
+            if same_sponsor and match.start <= current.end + 5.0:
                 # Merge - keep higher confidence
                 current = TextMatch(
                     pattern_id=current.pattern_id if current.confidence >= match.confidence else match.pattern_id,
@@ -774,6 +794,108 @@ class TextPatternMatcher:
 
         merged.append(current)
         return merged
+
+    def _get_sponsor_row(self, sponsor):
+        """Look up a known-sponsor row (name + aliases) for brand matching.
+
+        Falls back to a name-only row when there is no DB or no stored sponsor
+        so brand matching still works against the bare sponsor string.
+        """
+        if self.db:
+            row = self.db.get_known_sponsor_by_name(sponsor)
+            if row:
+                return row
+        return {'name': sponsor, 'aliases': '[]'}
+
+    def _brand_bearing_bounds(self, segments, start, end, sponsor_row):
+        """Return (first_start, last_end) of the segments overlapping
+        [start, end] whose text mentions the sponsor brand as a whole word, or
+        (None, None) if none do.
+
+        Word-boundary (not substring) matching so a short brand like 'Hims'
+        does not false-match content words like 'whims', which would otherwise
+        anchor the trim on show content and defeat it. Bounds use min/max so
+        the result is correct regardless of segment ordering.
+        """
+        candidates = brand_match_candidates(sponsor_row)
+        if not candidates:
+            return None, None
+        brand_re = re.compile('|'.join(rf'\b{re.escape(c)}\b' for c in candidates))
+
+        first = None
+        last = None
+        for seg in segments:
+            if seg['end'] <= start or seg['start'] >= end:
+                continue
+            if brand_re.search(seg.get('text', '').lower()):
+                first = seg['start'] if first is None else min(first, seg['start'])
+                last = seg['end'] if last is None else max(last, seg['end'])
+        return first, last
+
+    def _constrain_overlong_spans(self, matches, segments):
+        """Bound spans that ran past the real ad into show content.
+
+        The matcher emits the convex hull of every matched fragment with no
+        length cap, so a false-early anchor or a chained merge can stretch a
+        span minutes before/after the actual read. A span longer than a single
+        ad whose audio carries no brand mention there is over-cut. For each
+        match over MAX_MATCH_DURATION:
+        - with a sponsor: trim to the brand-bearing region (shrink only); drop
+          it entirely if the brand never appears in the span.
+        - without a sponsor: drop it. There is no brand to anchor the trim, and
+          clamping to a guessed window could cut show content if the real ad is
+          not where we guess. A later stage can still catch a real ad here.
+        Spans at or under MAX_MATCH_DURATION are returned unchanged.
+
+        Trimming only ever shrinks a span, so it cannot remove more show content
+        than the unbounded matcher already did; the residual failure modes all
+        err toward leaving ad audio in (the safe direction) rather than cutting
+        content:
+        - a genuine >MAX_MATCH_DURATION read whose brand is spoken only mid-span
+          (not at the edges) loses its brand-free intro/outro from the cut;
+        - a real long read whose brand is absent (ASR-garbled, or spoken only
+          as an unlisted form) is dropped and left in the episode;
+        - an over-long span that chains two same-sponsor reads with show content
+          between them keeps that interior content (the trim bounds only the
+          edges, it does not split interior gaps).
+        """
+        constrained = []
+        sponsor_rows = {}
+        for match in matches:
+            if match.end - match.start <= MAX_MATCH_DURATION:
+                constrained.append(match)
+                continue
+
+            if not match.sponsor:
+                logger.info(
+                    f"Dropping unattributed text_pattern span "
+                    f"{match.start:.1f}-{match.end:.1f}s "
+                    f"({match.end - match.start:.0f}s over cap, "
+                    f"no sponsor to anchor a trim)"
+                )
+                continue
+
+            if match.sponsor not in sponsor_rows:
+                sponsor_rows[match.sponsor] = self._get_sponsor_row(match.sponsor)
+            first, last = self._brand_bearing_bounds(
+                segments, match.start, match.end, sponsor_rows[match.sponsor]
+            )
+            if first is None:
+                logger.info(
+                    f"Dropping text_pattern span {match.start:.1f}-{match.end:.1f}s: "
+                    f"sponsor '{match.sponsor}' absent from "
+                    f"{match.end - match.start:.0f}s span (over-cut into content)"
+                )
+                continue
+            new_start = max(match.start, first)
+            new_end = min(match.end, last)
+            if (new_start, new_end) != (match.start, match.end):
+                logger.info(
+                    f"Trimming text_pattern span {match.start:.1f}-{match.end:.1f}s -> "
+                    f"{new_start:.1f}-{new_end:.1f}s to '{match.sponsor}' brand region"
+                )
+            constrained.append(replace(match, start=new_start, end=new_end))
+        return constrained
 
     def _refine_boundaries(
         self,
@@ -982,10 +1104,7 @@ class TextPatternMatcher:
         # sponsor stored as 'statefarm' still scores against a 'State Farm'
         # transcript and vice versa.
         if sponsor:
-            from community_export import count_brand_occurrences
-            sponsor_row = self.db.get_known_sponsor_by_name(sponsor) if self.db else None
-            if sponsor_row is None:
-                sponsor_row = {'name': sponsor, 'aliases': '[]'}
+            sponsor_row = self._get_sponsor_row(sponsor)
             occurrences = count_brand_occurrences(ad_text, sponsor_row)
             if occurrences < 2:
                 logger.warning(

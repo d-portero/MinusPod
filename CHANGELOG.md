@@ -6,6 +6,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.0] - 2026-06-22
+
+### Changed
+
+- The "Find cue candidates" scan now finds recurring sounds by fingerprinting the whole episode instead of hunting for loud spots. The old pass only triggered on loud bursts, so it missed ad-break stings that play at the same level as the talking around them. On one Daily Tech News Show episode the recurring sting sits at or below the speech level at most of its appearances, and the loud-spot pass returned nothing usable. The new scan generates one Chromaprint fingerprint of the episode and surfaces the windows that repeat across it, which does not depend on loudness: on that same episode it now returns the sting as the top candidate (5 of its 6 appearances) plus two other recurring segments, in about two seconds. Candidates are ranked by how often they repeat.
+
+### Added
+
+- Marking an ad-break cue now warns when the sound does not repeat in its source episode. A cue that appears only once can never bracket a break, so on save the capture tool checks the new cue against the rest of the episode; if an ad-break cue occurs just once, it asks you to pick a sound that repeats, or to click Save again to keep it anyway. Show intro and outro cues are skipped, since they are meant to play once.
+
+### Fixed
+
+- Cue-pair ad synthesis no longer invents an ad that covers most of a short episode. Two cues far enough apart could bracket a span that passed the absolute maximum-break limit (480s) yet still covered most of a short show, producing a phantom ad. A pair whose span is more than half the episode is now rejected; the fraction is a new tunable setting (audio_cue_pair_max_break_fraction, default 0.5, 0 to disable).
+
+## [2.18.2] - 2026-06-22
+
+### Fixed
+
+- Ad markers no longer show one sponsor's name with a different ad's description. When two detection stages overlapped, the cross-stage merge took the sponsor from one and the reason from the other, so a text-pattern match that fired on the wrong content (a Nordstrom pattern landing on a host tour-promo) or two back-to-back reads for different sponsors (a David Protein read next to a ZipRecruiter read) produced a self-contradictory marker. The merge now takes the sponsor and reason from the same member, preferring the content-aware (more descriptive) one, so the label always matches the description.
+- The play button on cue matches works again. When the original audio's metadata had not loaded yet, clicking did nothing: the handler waited for a load it never triggered, and even when it did fire it called play() outside the click's user gesture, which the browser blocks. It now starts playback synchronously on the click (keeping the gesture and triggering the load) and seeks to the match once metadata is ready. The same fix is applied to the cue-candidate preview button.
+
+### Dependencies
+
+- Bumped anthropic (0.109.2 -> 0.111.0), openai (2.41.0 -> 2.43.0), huggingface-hub (1.19.0 -> 1.20.1), pytest (9.1.0 -> 9.1.1); frontend react-router-dom (7.17.0 -> 7.18.0), lucide-react (1.18.0 -> 1.21.0), eslint (10.4.0 -> 10.5.0), typescript-eslint and @typescript-eslint/eslint-plugin (8.61.1); and actions/checkout (v6.0.3 -> v7.0.0).
+
+## [2.18.1] - 2026-06-22
+
+### Fixed
+
+- The text-pattern ad detector no longer cuts show content along with an ad. It was placing a single marker that ran from the real ad back through minutes of preceding show audio (one episode lost about 6 minutes of basketball talk before a Hims/Quince read). The matcher built each marker from every fragment it matched with no length limit, so a wrong early anchor or a chained merge could stretch one marker across unrelated content. Now a text-pattern marker longer than the longest plausible single read (3 min) is trimmed to where the sponsor name is actually spoken, matched as a whole word so "Hims" no longer matches "whims". An over-long span with no sponsor mention, or one that can't be attributed, is dropped rather than cut, and different sponsors stay as separate markers instead of merging into one giant span.
+
 ## [2.18.0] - 2026-06-21
 
 ### Added

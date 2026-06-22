@@ -120,8 +120,13 @@ function CueMarkModal({
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Weak-cue warning: shown once per bracket when a saved ad-break cue does not
+  // recur in its source episode. Keyed to the bracket so re-bracketing re-warns,
+  // and a second Save of the same bracket goes through.
+  const [weakWarning, setWeakWarning] = useState<string | null>(null);
+  const weakWarnedForRef = useRef<string | null>(null);
   const [previewMatches, setPreviewMatches] = useState<CueTemplateMatch[] | null>(null);
-  // Recurring-sound candidates (on-demand). Raw loud spots were too noisy and
+  // Recurring-sound candidates (on-demand fingerprint scan). Raw loud spots were too noisy and
   // the scan is slow, so it runs only when the user asks for it.
   const [candidates, setCandidates] = useState<CueCandidate[] | null>(null);
   const [candidatesLoading, setCandidatesLoading] = useState(false);
@@ -492,8 +497,22 @@ function CueMarkModal({
     if (!canSave) return;
     setSaving(true);
     setError(null);
+    setWeakWarning(null);
     try {
       const template = await ensureTemplate();
+      const bracketKey = `${cueStart.toFixed(3)}-${cueEnd.toFixed(3)}-${cueType}`;
+      if (template.weakCue && weakWarnedForRef.current !== bracketKey) {
+        // First save of this weak bracket: flag it and stay open so the user
+        // can pick a recurring sound, or click Save again to keep it anyway.
+        weakWarnedForRef.current = bracketKey;
+        setWeakWarning(
+          'This sound appears only once in this episode, so it cannot bracket '
+          + 'an ad break. Pick a sound that repeats, or click Save cue again to '
+          + 'keep it anyway.',
+        );
+        setSaving(false);
+        return;
+      }
       onFinalSave?.(template);
       onClose();
     } catch (e) {
@@ -840,6 +859,11 @@ function CueMarkModal({
         )}
 
         {error && <p className="text-sm text-destructive mt-3">{error}</p>}
+        {weakWarning && (
+          <p className="text-sm text-amber-600 dark:text-amber-400 mt-3" role="alert">
+            {weakWarning}
+          </p>
+        )}
 
         <audio
           ref={audioRef}

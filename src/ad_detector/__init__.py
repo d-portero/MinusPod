@@ -1607,18 +1607,26 @@ class AdDetector:
                 if current.get('confidence', 0) > last.get('confidence', 0):
                     last['confidence'] = current['confidence']
 
-                # Prefer pattern detection stage over claude
+                # Prefer pattern detection stage over claude. This governs
+                # cutting trust (stage + pattern_id) only; the sponsor LABEL is
+                # decided below, tied to the reason, so the two never disagree.
                 stage_priority = {'fingerprint': 0, 'text_pattern': 1, 'claude': 2}
                 if stage_priority.get(current.get('detection_stage'), 2) < stage_priority.get(last.get('detection_stage'), 2):
                     last['detection_stage'] = current['detection_stage']
                     last['pattern_id'] = current.get('pattern_id')
-                    if current.get('sponsor'):
-                        last['sponsor'] = current['sponsor']
-                # Prefer the more descriptive reason
-                current_reason = current.get('reason', '')
-                last_reason = last.get('reason', '')
-                if len(current_reason) > len(last_reason):
-                    last['reason'] = current_reason
+
+                # Keep sponsor and reason as a consistent pair from the SAME
+                # member, so a merged marker never shows one ad's sponsor with
+                # another ad's description (a Nordstrom pattern that matched a
+                # host tour-promo, or a David Protein read folded into a
+                # ZipRecruiter marker). The more descriptive (longer) reason
+                # comes from the content-aware detection, so its sponsor is the
+                # accurate label for that text -- take both from it together.
+                cur_reason = current.get('reason') or ''
+                last_reason = last.get('reason') or ''
+                if len(cur_reason) > len(last_reason):
+                    last['reason'] = cur_reason
+                    last['sponsor'] = current.get('sponsor')
             else:
                 merged.append(current.copy())
 

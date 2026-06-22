@@ -12,7 +12,7 @@ info:
     - Monitor system status and trigger cleanup operations
     - Manage cross-episode ad patterns with network and podcast scope
     - Submit corrections to improve ad detection accuracy
-  version: 2.18.0
+  version: 2.19.0
   contact:
     name: MinusPod
   license:
@@ -3028,6 +3028,11 @@ paths:
                   description: Longest cue-pair break (default 480s).
                   minimum: 1
                   maximum: 3600
+                audioCuePairMaxBreakFraction:
+                  type: number
+                  description: Reject a cue pair spanning more than this fraction of the episode (short-episode backstop; default 0.5, 0 disables).
+                  minimum: 0
+                  maximum: 1
                 audioCueCreateFromPairs:
                   type: boolean
                   description: Opt-in cue-pair ad synthesis. Off by default.
@@ -6004,6 +6009,14 @@ components:
         audioCuePairMaxBreakSeconds:
           type: object
           description: Longest cue-pair break, seconds (default 480).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCuePairMaxBreakFraction:
+          type: object
+          description: Reject a cue pair spanning more than this fraction of the episode (short-episode backstop; default 0.5, 0 disables).
           properties:
             value:
               type: number

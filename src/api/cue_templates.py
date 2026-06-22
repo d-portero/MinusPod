@@ -33,7 +33,7 @@ from audio_analysis.cue_template_matcher import (
 )
 from audio_analysis.cue_detector import AudioCueDetector
 from audio_analysis.detected_cues import build_detected_cues
-from audio_analysis.cue_recurrence import cluster_recurring
+from audio_fingerprinter import AudioFingerprinter
 from config import (
     AUDIO_CUE_CAPTURE_MIN_SECONDS, AUDIO_CUE_CAPTURE_MAX_SECONDS,
     AUDIO_CUE_CAPTURE_MAX_BY_TYPE,
@@ -43,6 +43,7 @@ from config import (
     AUDIO_CUE_RECURRENCE_SIMILARITY, AUDIO_CUE_RECURRENCE_MIN_COUNT,
     AUDIO_CUE_CANDIDATE_SCAN_STALE_SECONDS,
     AUDIO_CUE_TYPES, AUDIO_CUE_TYPE_DEFAULT, AUDIO_CUE_TYPE_SHOW_INTRO,
+    AUDIO_CUE_ROLE_NON_AD, audio_cue_type_role,
     is_template_cue,
 )
 from utils.validation import is_valid_episode_id
@@ -216,7 +217,24 @@ def create_cue_template(slug):
         f"window={start_s:.2f}-{end_s:.2f}s cue_type={cue_type!r}"
     )
     row = db.get_cue_template(template_id)
-    return json_response({'template': _template_to_meta_dict(row)}, status=201)
+    meta = _template_to_meta_dict(row)
+
+    # Weak-cue feedback: an ad-break cue that appears only once in its own
+    # source episode will never bracket a break, so warn the user at save time.
+    # Skip intro/outro (non_ad) cues -- they are meant to play once. Best-effort:
+    # an fpcalc failure leaves selfMatchCount at 0 (treated as unknown, no warn).
+    self_match_count = 0
+    if audio_cue_type_role(cue_type) != AUDIO_CUE_ROLE_NON_AD:
+        try:
+            similarity = db.get_setting_float(
+                'audio_cue_recurrence_similarity', AUDIO_CUE_RECURRENCE_SIMILARITY)
+            self_match_count = AudioFingerprinter().count_self_matches(
+                audio_path, start_s, end_s, similarity=similarity)
+        except Exception:
+            logger.exception('cue self-match failed for template %s', template_id)
+    meta['selfMatchCount'] = self_match_count
+    meta['weakCue'] = self_match_count == 1
+    return json_response({'template': meta}, status=201)
 
 
 @api.route('/cue-templates/<int:template_id>', methods=['PATCH'])
@@ -654,32 +672,20 @@ def episode_detected_cues(slug, episode_id):
 
 
 def _run_cue_candidate_scan(podcast_id, episode_id, audio_path, similarity, min_count):
-    """Background worker: decode the episode, cluster recurring sounds, persist.
+    """Background worker: find recurring sounds via fingerprint self-repeat, persist.
 
-    Runs off the request thread because the full decode takes 90s+ on a long
-    show, past the reverse-proxy timeout. Uses its own thread-local DB
-    connection (the Database singleton hands each thread its own).
+    Generates one full-file Chromaprint fingerprint and surfaces the windows
+    that recur at least ``min_count`` times. Loudness-independent, so it catches
+    level-matched ad-break stings the old loudness-gated MFCC pass missed. Runs
+    off the request thread because fpcalc on a long show can exceed the
+    reverse-proxy timeout. Uses its own thread-local DB connection (the Database
+    singleton hands each thread its own).
     """
     db = get_database()
     try:
-        spots = _scan_loud_spots(db, audio_path)
-        # Decode the episode to PCM once and slice each burst in memory, instead
-        # of one ffmpeg decode per burst. (The loud-spot detect() above ran a
-        # separate loudness pass, so the audio is walked twice total.)
-        full_pcm = decode_pcm_window(audio_path, 0.0, None, SAMPLE_RATE_HZ)
-        enriched = []
-        for s in spots:
-            a = int(s['start'] * SAMPLE_RATE_HZ)
-            b = int(s['end'] * SAMPLE_RATE_HZ)
-            mfcc = compute_mfcc(full_pcm[a:b])
-            if mfcc.shape[0] >= 3:
-                enriched.append({**s, 'mfcc': mfcc})
-        candidates = cluster_recurring(enriched, similarity=similarity, min_count=min_count)
-        db.save_cue_candidate_scan_result(podcast_id, episode_id, [
-            {'start': c['start'], 'end': c['end'],
-             'prominenceDb': c.get('prominenceDb'), 'count': c['count']}
-            for c in candidates
-        ])
+        candidates = AudioFingerprinter().discover_recurring_spots(
+            audio_path, similarity=similarity, min_count=min_count)
+        db.save_cue_candidate_scan_result(podcast_id, episode_id, candidates)
     except Exception as e:
         logger.exception('cue candidate scan failed for %s/%s', podcast_id, episode_id)
         db.save_cue_candidate_scan_error(podcast_id, episode_id, str(e))
@@ -690,12 +696,12 @@ def _run_cue_candidate_scan(podcast_id, episode_id, audio_path, similarity, min_
 def episode_cue_candidates(slug, episode_id):
     """Find RECURRING sounds in an episode as cue-template candidates (on-demand).
 
-    Detects loud bursts, computes each burst's MFCC, and clusters by acoustic
-    similarity; only sounds that repeat are returned (a real cue does; a laugh
-    or music hit does not). The scan decodes the whole episode and is slow, so
-    it runs in a background thread and this endpoint returns a status the UI
-    polls: 'scanning' (in progress), 'ready' (candidates attached), or 'error'.
-    Pass ?rescan=1 to force a fresh scan.
+    Fingerprints the whole episode and returns the windows that recur across it
+    (a real cue does; a one-off laugh or music hit does not). Loudness-
+    independent, so it catches level-matched stings. fpcalc on a long show can
+    exceed the proxy timeout, so it runs in a background thread and this endpoint
+    returns a status the UI polls: 'scanning' (in progress), 'ready' (candidates
+    attached), or 'error'. Pass ?rescan=1 to force a fresh scan.
     """
     if not is_valid_episode_id(episode_id):
         abort(400)

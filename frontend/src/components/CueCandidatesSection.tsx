@@ -36,6 +36,9 @@ function CueCandidatesSection({
   // span so a candidate can be heard without opening the capture modal.
   const audioRef = useRef<HTMLAudioElement>(null);
   const previewStopRef = useRef<(() => void) | null>(null);
+  // Bumped on every preview start/stop so a slow cold-load callback for a
+  // superseded candidate bails instead of arming a stray stop listener.
+  const reqRef = useRef(0);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
 
   const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: getSettings });
@@ -73,6 +76,7 @@ function CueCandidatesSection({
   const candidateKey = (c: CueCandidate) => `${c.start}-${c.end}`;
 
   const stopPreview = () => {
+    reqRef.current += 1;
     const a = audioRef.current;
     if (a) a.pause();
     if (previewStopRef.current) {
@@ -95,23 +99,35 @@ function CueCandidatesSection({
       previewStopRef.current();
       previewStopRef.current = null;
     }
-    a.pause();
-    const begin = () => {
-      a.currentTime = c.start;
+    reqRef.current += 1;
+    const req = reqRef.current;
+    const armStop = () => {
       const onTime = () => { if (a.currentTime >= c.end) stopPreview(); };
       a.addEventListener('timeupdate', onTime);
       previewStopRef.current = () => a.removeEventListener('timeupdate', onTime);
-      // If play is blocked (autoplay policy) or errors, reset so the button
-      // doesn't stay stuck showing "pause" with no audio.
-      a.play().catch(() => stopPreview());
     };
+    // If play is blocked (autoplay policy) or errors, reset so the button
+    // doesn't stay stuck showing "pause" with no audio.
     if (a.readyState >= 1) {
-      begin();
+      a.pause();
+      a.currentTime = c.start;
+      armStop();
+      a.play().catch(() => stopPreview());
     } else {
-      const onMeta = () => { a.removeEventListener('loadedmetadata', onMeta); begin(); };
-      a.addEventListener('loadedmetadata', onMeta);
-      previewStopRef.current = () => a.removeEventListener('loadedmetadata', onMeta);
-      a.load();
+      // Metadata not loaded yet. Call play() synchronously so it keeps the
+      // click's user gesture (autoplay policy) and triggers the load; seek to
+      // the candidate start once metadata arrives. Deferring play() into a
+      // loadedmetadata callback loses the gesture and is blocked.
+      a.play().then(() => {
+        if (reqRef.current !== req) return;  // a newer click took over
+        const seek = () => { a.currentTime = c.start; armStop(); };
+        if (a.readyState >= 1) seek();
+        else {
+          const onMeta = () => { a.removeEventListener('loadedmetadata', onMeta); seek(); };
+          a.addEventListener('loadedmetadata', onMeta);
+          previewStopRef.current = () => a.removeEventListener('loadedmetadata', onMeta);
+        }
+      }).catch(() => stopPreview());
     }
     setPlayingKey(candidateKey(c));
   };
@@ -135,7 +151,7 @@ function CueCandidatesSection({
     >
       <p className="text-sm text-muted-foreground mb-3">
         Scan the audio for sounds that repeat across the episode -- the kind worth
-        templating. One-off loud moments are skipped.
+        templating. One-off sounds are skipped.
       </p>
 
       {!scanned && (
@@ -199,9 +215,6 @@ function CueCandidatesSection({
                     <span className="px-1.5 py-0.5 text-xs rounded font-medium bg-blue-500/20 text-blue-600 dark:text-blue-400">
                       Repeats {c.count}x
                     </span>
-                    {c.prominenceDb != null && (
-                      <span className="text-xs text-muted-foreground">{c.prominenceDb.toFixed(1)} dB</span>
-                    )}
                   </div>
                   <button
                     onClick={() => makeTemplate(c.start, c.end)}

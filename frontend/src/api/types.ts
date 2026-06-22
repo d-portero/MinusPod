@@ -208,6 +208,7 @@ export interface Settings {
   audioCuePairConfidence: SettingValueNumber;
   audioCuePairMinBreakSeconds: SettingValueNumber;
   audioCuePairMaxBreakSeconds: SettingValueNumber;
+  audioCuePairMaxBreakFraction: SettingValueNumber;
   positionalPriorEnabled: SettingValueBoolean;
   vttTranscriptsEnabled: SettingValueBoolean;
   chaptersEnabled: SettingValueBoolean;
@@ -276,6 +277,7 @@ export interface Settings {
     audioCuePairConfidence: number;
     audioCuePairMinBreakSeconds: number;
     audioCuePairMaxBreakSeconds: number;
+    audioCuePairMaxBreakFraction: number;
     positionalPriorEnabled: boolean;
   };
 }
@@ -318,6 +320,7 @@ export interface UpdateSettingsPayload {
   audioCuePairConfidence?: number;
   audioCuePairMinBreakSeconds?: number;
   audioCuePairMaxBreakSeconds?: number;
+  audioCuePairMaxBreakFraction?: number;
   positionalPriorEnabled?: boolean;
   vttTranscriptsEnabled?: boolean;
   chaptersEnabled?: boolean;

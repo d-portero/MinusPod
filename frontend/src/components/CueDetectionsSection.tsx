@@ -58,10 +58,14 @@ function CueDetectionsSection({ slug, episodeId, detections }: CueDetectionsSect
   // Holds a function that detaches whichever listener is active (the timeupdate
   // stop, or a pending loadedmetadata seek), so a row switch tears down cleanly.
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Bumped on every play/stop so a slow cold-load callback for a superseded
+  // row bails instead of arming a stray stop listener or seeking the wrong row.
+  const reqRef = useRef(0);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const audioUrl = `/api/v1/feeds/${slug}/episodes/${episodeId}/original.mp3`;
 
   const clearStop = () => {
+    reqRef.current += 1;
     if (cleanupRef.current) cleanupRef.current();
     cleanupRef.current = null;
   };
@@ -70,24 +74,39 @@ function CueDetectionsSection({ slug, episodeId, detections }: CueDetectionsSect
     const audio = audioRef.current;
     if (!audio) return;
     clearStop();
-    // Seek then play, but only once metadata is loaded -- setting currentTime
-    // before HAVE_METADATA is dropped by Chrome/Safari and would play from 0:00.
-    const begin = () => {
-      audio.currentTime = d.start_s;
+    const req = reqRef.current;
+    // Set playing state synchronously (not in play().then) so a second click
+    // pauses during a cold load instead of starting a duplicate playback.
+    setPlayingId(d.id);
+    // Pause at the match end; setting currentTime before HAVE_METADATA is
+    // dropped by Chrome/Safari, so the seek waits for metadata.
+    const armStop = () => {
       const stop = () => {
         if (audio.currentTime >= d.end_s) { clearStop(); audio.pause(); }
       };
       audio.addEventListener('timeupdate', stop);
       cleanupRef.current = () => audio.removeEventListener('timeupdate', stop);
-      // Rely on onPause/onEnded to clear playingId; a no-op catch avoids an
-      // aborted play() (rapid row switch) clobbering another row's state.
-      audio.play().then(() => setPlayingId(d.id)).catch(() => {});
     };
+    const fail = () => { if (reqRef.current === req) setPlayingId(null); };
     if (audio.readyState >= 1) {
-      begin();
+      audio.currentTime = d.start_s;
+      armStop();
+      audio.play().catch(fail);
     } else {
-      audio.addEventListener('loadedmetadata', begin, { once: true });
-      cleanupRef.current = () => audio.removeEventListener('loadedmetadata', begin);
+      // Metadata not loaded yet. Call play() synchronously so it keeps the
+      // click's user gesture (autoplay policy) AND triggers the load; then
+      // seek to the match start once metadata arrives. Deferring play() into a
+      // loadedmetadata callback loses the gesture and, with no load() kicked
+      // off, the metadata may never arrive -- so the click did nothing.
+      audio.play().then(() => {
+        if (reqRef.current !== req) return;  // a newer click took over
+        const seek = () => { audio.currentTime = d.start_s; armStop(); };
+        if (audio.readyState >= 1) seek();
+        else {
+          audio.addEventListener('loadedmetadata', seek, { once: true });
+          cleanupRef.current = () => audio.removeEventListener('loadedmetadata', seek);
+        }
+      }).catch(fail);
     }
   };
 

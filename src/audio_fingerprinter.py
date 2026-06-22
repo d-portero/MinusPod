@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 import json
 
+import numpy as np
+
 try:
     import acoustid
 except ImportError:
@@ -29,6 +31,14 @@ from config import (
     FPCALC_TIMEOUT,
     FPCALC_TIMEOUT_FULL,
     SUBPROCESS_VERSION_PROBE,
+    AUDIO_CUE_FP_WINDOW_SECONDS,
+    AUDIO_CUE_FP_KEY_BITS,
+    AUDIO_CUE_FP_KEY_SAMPLES,
+    AUDIO_CUE_FP_MIN_GAP_SECONDS,
+    AUDIO_CUE_FP_MAX_COUNT,
+    AUDIO_CUE_FP_MAX_LEN_SECONDS,
+    AUDIO_CUE_FP_MAX_ANCHORS,
+    AUDIO_CUE_FP_MAX_CANDIDATES,
 )
 
 logger = logging.getLogger('podcast.fingerprint')
@@ -52,6 +62,171 @@ SLIDING_STEP_SIZE = 2.0
 # new matches -- the only realistic save is a single bad frame midway. 90s
 # is enough to catch that case without burning the 10-minute upper bound.
 FALLBACK_SLOW_TIMEOUT = 90
+
+# 256-entry table for vectorized population count over uint32 numpy arrays.
+_POPCOUNT8 = np.array([bin(i).count('1') for i in range(256)], dtype=np.uint16)
+
+
+def _popcount32(x):
+    """Vectorized population count for a uint32 numpy array."""
+    return (_POPCOUNT8[x & 0xFF] + _POPCOUNT8[(x >> 8) & 0xFF]
+            + _POPCOUNT8[(x >> 16) & 0xFF] + _POPCOUNT8[(x >> 24) & 0xFF])
+
+
+# _window_similarity / _pair_similarity are the numpy-vectorized twins of the
+# scalar AudioFingerprinter._calculate_similarity: the same bit-error-rate metric
+# (1 - hamming(a XOR b) / bits) over uint32-masked Chromaprint ints. The np.uint32
+# array dtype handles the signed-int masking that _calculate_similarity does with
+# `& 0xFFFFFFFF`. Kept separate because these run the comparison over every offset
+# at once, where the scalar version walks one pair in a Python loop.
+def _window_similarity(arr, anchor, win):
+    """Bit-similarity (0-1) of window [anchor, anchor+win) vs every start position."""
+    m = len(arr) - win + 1
+    diff = np.zeros(m, dtype=np.int64)
+    for k in range(win):
+        diff += _popcount32(arr[k:k + m] ^ arr[anchor + k])
+    return 1.0 - diff / (win * 32)
+
+
+def _pair_similarity(arr, a, b, length):
+    """Bit-similarity (0-1) of the two length-``length`` windows at ``a`` and ``b``."""
+    bad = int(_popcount32(arr[a:a + length] ^ arr[b:b + length]).sum())
+    return 1.0 - bad / (length * 32)
+
+
+def _greedy_hit_positions(sim, similarity, min_gap, claimed=None):
+    """Walk a similarity curve left-to-right, taking one hit per ``min_gap`` run.
+
+    Once a position clears ``similarity`` it is taken and the next ``min_gap``
+    positions are skipped, so a single occurrence is counted once. ``claimed``,
+    when given, suppresses positions an earlier candidate already owns.
+    """
+    hits = []
+    p = 0
+    m = len(sim)
+    while p < m:
+        if sim[p] >= similarity and (claimed is None or not claimed[p]):
+            hits.append(p)
+            p += min_gap
+        else:
+            p += 1
+    return hits
+
+
+def _count_window_matches(raw_ints, fp_duration, start_s, end_s, similarity):
+    """Count how many times the [start_s, end_s] window recurs in the file.
+
+    A self-match of a captured cue: 1 means it appears only where it was
+    captured (a non-recurring, weak template); >=2 means it recurs and can
+    bracket ad breaks. Pure function over the fpcalc ``-raw`` int array.
+    """
+    n = len(raw_ints)
+    if n == 0 or fp_duration <= 0 or end_s <= start_s:
+        return 0
+    fps = n / fp_duration
+    anchor = min(max(0, int(round(start_s * fps))), n - 1)
+    win = min(max(4, int(round((end_s - start_s) * fps))), n - anchor)
+    if win < 4:
+        return 0
+    arr = np.asarray(raw_ints, dtype=np.uint32)
+    min_gap = max(1, int(round(AUDIO_CUE_FP_MIN_GAP_SECONDS * fps)))
+    sim = _window_similarity(arr, anchor, win)
+    return len(_greedy_hit_positions(sim, similarity, min_gap))
+
+
+def _discover_repeats(raw_ints, fp_duration, similarity, min_count):
+    """Find windows of a raw Chromaprint fingerprint that recur across the file.
+
+    Pure function over the fpcalc ``-raw`` int array (no I/O). A short probe
+    window seeds LSH buckets; each bucket's first member anchors a full
+    self-Hamming scan, the matched segment is grown to its true length, and its
+    whole extent is claimed so a long recurring block surfaces as one candidate
+    rather than many fragments. Loudness-independent.
+
+    Args:
+        raw_ints: fpcalc ``-raw`` fingerprint as a list/array of ints (~8/sec).
+        fp_duration: duration the fingerprint covers, in seconds.
+        similarity: per-window bit-similarity (0-1) two occurrences must reach.
+        min_count: minimum occurrences for a sound to be suggested.
+
+    Returns:
+        Candidate dicts {start, end, count} in descending recurrence order,
+        capped at AUDIO_CUE_FP_MAX_CANDIDATES.
+    """
+    n = len(raw_ints)
+    if n == 0 or fp_duration <= 0:
+        return []
+    fps = n / fp_duration
+    win = max(4, int(round(AUDIO_CUE_FP_WINDOW_SECONDS * fps)))
+    if n < win * 2:
+        return []
+    min_gap = max(1, int(round(AUDIO_CUE_FP_MIN_GAP_SECONDS * fps)))
+    max_len = max(win, int(round(AUDIO_CUE_FP_MAX_LEN_SECONDS * fps)))
+    step = max(1, win // 2)
+    # Via int64 so signed/out-of-range ints wrap into uint32 (matching the
+    # `& 0xFFFFFFFF` masking in _calculate_similarity) instead of warning.
+    arr = np.asarray(raw_ints, dtype=np.int64).astype(np.uint32)
+
+    # LSH seed: bucket each probe window by the top KEY_BITS of KEY_SAMPLES
+    # evenly spaced subfingerprints, so windows of the same sound collide.
+    samples = [int(j * (win - 1) / (AUDIO_CUE_FP_KEY_SAMPLES - 1))
+               for j in range(AUDIO_CUE_FP_KEY_SAMPLES)]
+    shift = 32 - AUDIO_CUE_FP_KEY_BITS
+    buckets = {}
+    for i in range(0, n - win + 1, step):
+        key = tuple(int(arr[i + s]) >> shift for s in samples)
+        buckets.setdefault(key, []).append(i)
+    anchors = [members[0] for members in
+               sorted(buckets.values(), key=lambda m: -len(m))
+               if len(members) >= 2][:AUDIO_CUE_FP_MAX_ANCHORS]
+
+    claimed = np.zeros(n, dtype=bool)
+    candidates = []
+    for anchor in anchors:
+        if claimed[anchor]:
+            continue
+        hits = _greedy_hit_positions(
+            _window_similarity(arr, anchor, win), similarity, min_gap, claimed)
+        if not (min_count <= len(hits) <= AUDIO_CUE_FP_MAX_COUNT):
+            continue
+        # Reference the first matching occurrence (hits is ascending), not the
+        # LSH bucket member, which can sit mid-run and even after hits[-1]; using
+        # the smallest hit keeps every shifted index in [0, n) below.
+        ref = hits[0]
+        # The match usually lands mid-sound. Walk the whole occurrence set back
+        # to the true onset so the candidate points at the sound's start (and its
+        # claim absorbs earlier fragments of the same block).
+        back = 0
+        while (ref - (back + step) >= 0
+               and all(_pair_similarity(arr, ref - back - step, h - back - step, win) >= similarity
+                       for h in hits[1:])):
+            back += step
+        seg_hits = [h - back for h in hits]   # ascending; seg_hits[0] == ref - back
+        seg_start = seg_hits[0]
+        # Backward extension can walk into a region an earlier (stronger)
+        # candidate already claimed; if so this is the same sound seen from a
+        # weaker anchor -- drop it rather than emit an overlapping duplicate.
+        if claimed[seg_start]:
+            continue
+        # Grow the segment forward while every occurrence keeps matching. The
+        # largest occurrence (seg_hits[-1]) bounds the in-file check.
+        length = win + back
+        while length + step <= max_len and seg_hits[-1] + length + step <= n:
+            if all(_pair_similarity(arr, seg_start, sh, length + step) >= similarity
+                   for sh in seg_hits[1:]):
+                length += step
+            else:
+                break
+        for sh in seg_hits:
+            claimed[max(0, sh - min_gap):min(sh + length + min_gap, n)] = True
+        start_s = seg_start / fps
+        candidates.append({
+            'start': round(start_s, 2),
+            'end': round(start_s + length / fps, 2),
+            'count': len(hits),
+        })
+    candidates.sort(key=lambda c: -c['count'])
+    return candidates[:AUDIO_CUE_FP_MAX_CANDIDATES]
 
 
 @dataclass
@@ -265,6 +440,10 @@ class AudioFingerprinter:
         """
         Calculate similarity between two fingerprint arrays using bit error rate.
 
+        Scalar twin of the module-level _window_similarity / _pair_similarity
+        (same metric); this one walks one slice pair in a Python loop for the
+        ad-matching path, those vectorize it over every offset for cue discovery.
+
         Args:
             fp1: First fingerprint array
             fp2: Second fingerprint array
@@ -299,8 +478,16 @@ class AudioFingerprinter:
 
         return matching_bits / total_bits if total_bits > 0 else 0.0
 
-    def _generate_full_fingerprint(self, audio_path: str) -> Optional[Tuple[List[int], float]]:
+    def _generate_full_fingerprint(
+        self, audio_path: str, timeout: int = FPCALC_TIMEOUT_FULL
+    ) -> Optional[Tuple[List[int], float]]:
         """Generate raw fingerprint for entire audio file in one fpcalc call.
+
+        Args:
+            audio_path: Path to the audio file.
+            timeout: fpcalc wall-clock cap. Defaults to the full-file budget; a
+                caller on a request thread can pass a shorter bound so a stalled
+                decode degrades gracefully instead of holding the request.
 
         Returns:
             Tuple of (raw_int_array, duration) or None on failure
@@ -310,7 +497,7 @@ class AudioFingerprinter:
 
         try:
             cmd = [self._fpcalc_path, '-raw', '-json', '-length', '0', audio_path]
-            result = tracked_run(cmd, capture_output=True, timeout=FPCALC_TIMEOUT_FULL)
+            result = tracked_run(cmd, capture_output=True, timeout=timeout)
 
             if result.returncode != 0:
                 logger.warning(f"Full-file fpcalc failed: {result.stderr.decode()}")
@@ -332,6 +519,51 @@ class AudioFingerprinter:
         except Exception as e:
             logger.error(f"Full-file fingerprint generation failed: {e}")
             return None
+
+    def discover_recurring_spots(self, audio_path, *, similarity, min_count):
+        """Find recurring sounds in an episode as cue-template candidates.
+
+        Generates one full-file raw Chromaprint fingerprint, then surfaces the
+        windows that recur at least ``min_count`` times. Loudness-independent,
+        so it catches level-matched stings the loudness scan misses.
+
+        Returns candidate dicts {start, end, count} in descending recurrence
+        order, or [] if fpcalc is unavailable or fails.
+        """
+        if not self._fpcalc_path:
+            return []
+        full_fp = self._generate_full_fingerprint(audio_path)
+        if full_fp is None:
+            logger.warning(
+                "Cue candidate discovery: full-file fingerprint failed for %s",
+                audio_path)
+            return []
+        raw_ints, fp_duration = full_fp
+        candidates = _discover_repeats(raw_ints, fp_duration, similarity, min_count)
+        logger.info(
+            "Cue candidate discovery: %d candidates from %d subfingerprints (%.0fs)",
+            len(candidates), len(raw_ints), fp_duration)
+        return candidates
+
+    def count_self_matches(self, audio_path, start_s, end_s, *, similarity):
+        """Count how many times a captured cue window recurs in its episode.
+
+        Used at template-create time to warn on a weak cue: 1 means the sound
+        appears only where it was captured (it will not bracket ad breaks); >=2
+        means it recurs. Returns 0 if fpcalc is unavailable or fails.
+
+        Runs on the create request thread, so the fingerprint is bounded by the
+        shorter FPCALC_TIMEOUT (not the full-file budget): a normal episode
+        fingerprints in seconds, and a stalled decode gives up well before the
+        proxy timeout, yielding 0 (no warning) rather than blocking the save.
+        """
+        if not self._fpcalc_path:
+            return 0
+        full_fp = self._generate_full_fingerprint(audio_path, timeout=FPCALC_TIMEOUT)
+        if full_fp is None:
+            return 0
+        raw_ints, fp_duration = full_fp
+        return _count_window_matches(raw_ints, fp_duration, start_s, end_s, similarity)
 
     def _decode_known_fingerprints(
         self,

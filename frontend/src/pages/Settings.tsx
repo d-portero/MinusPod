@@ -89,6 +89,7 @@ function Settings() {
     pairConfidence: 0.85,
     pairMinBreakSeconds: 30,
     pairMaxBreakSeconds: 480,
+    pairMaxBreakFraction: 0.5,
   });
   const [positionalPriorEnabled, setPositionalPriorEnabled] = useState(false);
   const [selectedModel, setSelectedModel] = useState('');
@@ -335,6 +336,7 @@ function Settings() {
         pairConfidence: settings.audioCuePairConfidence?.value ?? d.audioCuePairConfidence ?? 0.85,
         pairMinBreakSeconds: settings.audioCuePairMinBreakSeconds?.value ?? d.audioCuePairMinBreakSeconds ?? 30,
         pairMaxBreakSeconds: settings.audioCuePairMaxBreakSeconds?.value ?? d.audioCuePairMaxBreakSeconds ?? 480,
+        pairMaxBreakFraction: settings.audioCuePairMaxBreakFraction?.value ?? d.audioCuePairMaxBreakFraction ?? 0.5,
       });
       setPositionalPriorEnabled(
         settings.positionalPriorEnabled?.value ?? d.positionalPriorEnabled);
@@ -398,6 +400,7 @@ function Settings() {
     if (audioCue.pairConfidence !== (settings.audioCuePairConfidence?.value ?? d.audioCuePairConfidence ?? 0.85)) payload.audioCuePairConfidence = audioCue.pairConfidence;
     if (audioCue.pairMinBreakSeconds !== (settings.audioCuePairMinBreakSeconds?.value ?? d.audioCuePairMinBreakSeconds ?? 30)) payload.audioCuePairMinBreakSeconds = audioCue.pairMinBreakSeconds;
     if (audioCue.pairMaxBreakSeconds !== (settings.audioCuePairMaxBreakSeconds?.value ?? d.audioCuePairMaxBreakSeconds ?? 480)) payload.audioCuePairMaxBreakSeconds = audioCue.pairMaxBreakSeconds;
+    if (audioCue.pairMaxBreakFraction !== (settings.audioCuePairMaxBreakFraction?.value ?? d.audioCuePairMaxBreakFraction ?? 0.5)) payload.audioCuePairMaxBreakFraction = audioCue.pairMaxBreakFraction;
     if (positionalPriorEnabled !== (settings.positionalPriorEnabled?.value ?? d.positionalPriorEnabled)) payload.positionalPriorEnabled = positionalPriorEnabled;
     if (selectedModel !== (settings.claudeModel?.value || '')) payload.claudeModel = selectedModel;
     if (verificationModel !== (settings.verificationModel?.value || '')) payload.verificationModel = verificationModel;

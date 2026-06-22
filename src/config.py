@@ -203,18 +203,39 @@ AUDIO_CUE_CAPTURE_MAX_OUTRO_SECONDS = 60.0  # Longest show-outro stinger a user 
 AUDIO_CUE_PAIR_CONFIDENCE = 0.85        # Min cue confidence to synthesize an ad from a pair
 AUDIO_CUE_PAIR_MIN_BREAK_SECONDS = 30.0   # Shortest plausible cue-pair break
 AUDIO_CUE_PAIR_MAX_BREAK_SECONDS = 480.0  # Longest plausible cue-pair break
+# Backstop for short episodes: a pair whose span covers more than this fraction
+# of the whole episode is almost certainly two unrelated breaks (or a mis-typed
+# bumper near each end), not one bracketing pair, so it is rejected even when the
+# absolute MAX_BREAK_SECONDS cap would pass it. On a 6-minute episode the 480s
+# absolute cap never bites; this does.
+AUDIO_CUE_PAIR_MAX_BREAK_FRACTION = 0.5
 # Cue-candidate recurrence (episode-page "find candidates" scan). A real cue
-# repeats; a one-off loud burst does not. Bursts are clustered by MFCC
-# similarity and only sounds that recur at least MIN_COUNT times are suggested.
-AUDIO_CUE_RECURRENCE_SIMILARITY = 0.75   # peak sliding-ZNCC to call two bursts the same sound
+# repeats; a one-off sound does not. The scan generates one Chromaprint
+# fingerprint of the whole episode and finds windows that recur at least
+# MIN_COUNT times (loudness-independent, so it catches level-matched stings the
+# old loudness-gated pass missed). SIMILARITY is the per-window fingerprint
+# bit-similarity (0-1, higher = stricter) two occurrences must reach to count as
+# the same sound.
+AUDIO_CUE_RECURRENCE_SIMILARITY = 0.75   # fingerprint bit-similarity to call two windows the same sound
 AUDIO_CUE_RECURRENCE_MIN_COUNT = 3       # minimum occurrences to suggest a sound
-# Generous discovery profile for the candidate scan (and the capture-UI loud
-# spots), separate from the precise live-detection band above. Real ad-break
-# sounds are often sustained, bass/broadband musical stings rather than short
-# high-band dings, so the scan reaches lower in frequency, triggers on a smaller
-# rise, captures the full attack/decay via a release threshold, and allows long
-# sounds. The recurrence filter (MIN_COUNT identical occurrences) is what keeps
-# false positives down, so the burst detector itself can afford to be loose.
+# Fingerprint self-repeat discovery internals (candidate scan). The probe window
+# seeds LSH buckets; each bucket's first member anchors a full self-scan whose
+# segment is then grown to its true length and its whole extent claimed so a long
+# recurring block surfaces as one candidate, not many fragments.
+AUDIO_CUE_FP_WINDOW_SECONDS = 2.0        # LSH probe window (~16 subfingerprints)
+AUDIO_CUE_FP_KEY_BITS = 6                # top bits sampled per keyed subfingerprint
+AUDIO_CUE_FP_KEY_SAMPLES = 4             # subfingerprints sampled to form an LSH key
+AUDIO_CUE_FP_MIN_GAP_SECONDS = 5.0       # occurrences closer than this are the same instance
+AUDIO_CUE_FP_MAX_COUNT = 30              # >this many repeats is pervasive filler, not a cue
+AUDIO_CUE_FP_MAX_LEN_SECONDS = 30.0      # cap on segment-length extension
+AUDIO_CUE_FP_MAX_ANCHORS = 600           # cap on anchors scanned (bounds long-episode work)
+AUDIO_CUE_FP_MAX_CANDIDATES = 10         # cap on candidates returned to the UI
+# Generous loudness discovery profile for the capture-UI loud spots (the
+# template-free "jump to a loud spot" markers), separate from the precise
+# live-detection band above. Real ad-break sounds are often sustained,
+# bass/broadband musical stings rather than short high-band dings, so the scan
+# reaches lower in frequency, triggers on a smaller rise, captures the full
+# attack/decay via a release threshold, and allows long sounds.
 AUDIO_CUE_SCAN_FREQ_MIN_HZ = 500.0       # reach below the 1.5kHz live floor to catch bass stings
 AUDIO_CUE_SCAN_PROMINENCE_DB = 6.0       # dB over baseline to START a candidate burst (vs 9 live)
 AUDIO_CUE_SCAN_RELEASE_DB = 3.0          # extend the burst out to where it falls within this of baseline

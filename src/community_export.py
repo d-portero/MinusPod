@@ -110,21 +110,17 @@ def normalize_aliases(value) -> List[str]:
     return []
 
 
-def count_brand_occurrences(text: str, sponsor_row: Optional[Dict]) -> int:
-    """Maximum case-insensitive substring count of the sponsor's name and any
-    of its aliases against `text`. Also counts whitespace-stripped variants
-    so a sponsor stored as 'statefarm' still scores against a 'State Farm'
-    mention, and vice versa.
-
-    Returns 0 when sponsor_row is missing, has no name/aliases, or no
-    variant appears in text. The 2.5.13 pattern-correctness guard rejects
-    patterns where the returned count is <2.
+def brand_match_candidates(sponsor_row: Optional[Dict]) -> set:
+    """Lowercased sponsor name and aliases plus their whitespace-stripped
+    variants, for brand matching. Includes the stripped forms so a sponsor
+    stored as 'statefarm' still matches a 'State Farm' mention and vice versa.
+    Empty set when sponsor_row is missing or has no name.
     """
-    if not sponsor_row or not text:
-        return 0
+    if not sponsor_row:
+        return set()
     name = (sponsor_row.get('name') or '').strip()
     if not name:
-        return 0
+        return set()
     candidates = {name.lower()}
     no_ws = name.replace(' ', '').lower()
     if no_ws:
@@ -136,6 +132,24 @@ def count_brand_occurrences(text: str, sponsor_row: Optional[Dict]) -> int:
         alias_no_ws = alias.replace(' ', '').lower()
         if alias_no_ws:
             candidates.add(alias_no_ws)
+    return candidates
+
+
+def count_brand_occurrences(text: str, sponsor_row: Optional[Dict]) -> int:
+    """Maximum case-insensitive substring count of the sponsor's name and any
+    of its aliases against `text`. Also counts whitespace-stripped variants
+    so a sponsor stored as 'statefarm' still scores against a 'State Farm'
+    mention, and vice versa.
+
+    Returns 0 when sponsor_row is missing, has no name/aliases, or no
+    variant appears in text. The 2.5.13 pattern-correctness guard rejects
+    patterns where the returned count is <2.
+    """
+    if not text:
+        return 0
+    candidates = brand_match_candidates(sponsor_row)
+    if not candidates:
+        return 0
     text_lower = text.lower()
     return max((text_lower.count(c) for c in candidates), default=0)
 

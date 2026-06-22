@@ -25,6 +25,7 @@ from config import (
     MIN_CUT_CONFIDENCE, MAX_EPISODE_RETRIES,
     AUDIO_CUE_SNAP_CONFIDENCE, AUDIO_CUE_PAIR_CONFIDENCE,
     AUDIO_CUE_PAIR_MIN_BREAK_SECONDS, AUDIO_CUE_PAIR_MAX_BREAK_SECONDS,
+    AUDIO_CUE_PAIR_MAX_BREAK_FRACTION,
 )
 from llm_capabilities import (
     PASS_AD_DETECTION_1, PASS_AD_DETECTION_2,
@@ -401,6 +402,8 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
                 min_confidence=db.get_setting_float('audio_cue_pair_confidence', AUDIO_CUE_PAIR_CONFIDENCE),
                 min_break_s=db.get_setting_float('audio_cue_pair_min_break_seconds', AUDIO_CUE_PAIR_MIN_BREAK_SECONDS),
                 max_break_s=db.get_setting_float('audio_cue_pair_max_break_seconds', AUDIO_CUE_PAIR_MAX_BREAK_SECONDS),
+                total_duration=(segments[-1]['end'] if segments else 0.0),
+                max_break_fraction=db.get_setting_float('audio_cue_pair_max_break_fraction', AUDIO_CUE_PAIR_MAX_BREAK_FRACTION),
             )
             added = len(updated) - len(first_pass_ads)
             if added:

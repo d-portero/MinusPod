@@ -18,6 +18,7 @@ export interface AudioCueState {
   pairConfidence: number;
   pairMinBreakSeconds: number;
   pairMaxBreakSeconds: number;
+  pairMaxBreakFraction: number;
 }
 
 interface AudioCueDetectionSectionProps {
@@ -29,7 +30,8 @@ type NumericKey =
   | 'freqMinHz' | 'freqMaxHz' | 'prominenceDb' | 'minConfidence' | 'templateScore'
   | 'snapConfidence' | 'captureMinSeconds' | 'captureMaxSeconds'
   | 'captureMaxIntroSeconds' | 'captureMaxOutroSeconds'
-  | 'pairConfidence' | 'pairMinBreakSeconds' | 'pairMaxBreakSeconds';
+  | 'pairConfidence' | 'pairMinBreakSeconds' | 'pairMaxBreakSeconds'
+  | 'pairMaxBreakFraction';
 
 const inputClass =
   'w-28 px-3 py-1.5 rounded-lg border border-input bg-background text-foreground ' +
@@ -214,6 +216,8 @@ function AudioCueDetectionSection({ audioCue, onChange }: AudioCueDetectionSecti
                 'Shortest span between two cues that may form a synthesized ad.')}
               {numRow('pairMaxBreakSeconds', 'audioCuePairMaxBreakSeconds', 'Cue-pair maximum break (s)', 1, 3600, 30, 480,
                 'Longest span between two cues that may form a synthesized ad.')}
+              {numRow('pairMaxBreakFraction', 'audioCuePairMaxBreakFraction', 'Cue-pair maximum break (fraction of episode)', 0, 1, 0.05, 0.5,
+                'Reject a cue pair spanning more than this fraction of the episode. A short-episode backstop against a pair bracketing most of the show. 0 disables it.')}
             </div>
           </div>
         )}

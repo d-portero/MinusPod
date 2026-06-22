@@ -24,6 +24,7 @@ from config import (
     AUDIO_CUE_PAIR_CONFIDENCE,
     AUDIO_CUE_PAIR_MIN_BREAK_SECONDS,
     AUDIO_CUE_PAIR_MAX_BREAK_SECONDS,
+    AUDIO_CUE_PAIR_MAX_BREAK_FRACTION,
     AUDIO_CUE_ROLE_DEFAULT,
     AUDIO_CUE_START_EDGE_ROLES,
     AUDIO_CUE_END_EDGE_ROLES,
@@ -41,6 +42,7 @@ logger = logging.getLogger('podcast.claude.cue_pair')
 DEFAULT_MIN_PAIR_CONFIDENCE = AUDIO_CUE_PAIR_CONFIDENCE
 DEFAULT_MIN_BREAK_S = AUDIO_CUE_PAIR_MIN_BREAK_SECONDS
 DEFAULT_MAX_BREAK_S = AUDIO_CUE_PAIR_MAX_BREAK_SECONDS
+DEFAULT_MAX_BREAK_FRACTION = AUDIO_CUE_PAIR_MAX_BREAK_FRACTION
 # An LLM-detected ad that overlaps a cue pair by this many seconds (on
 # either side) is treated as "already covers it" and the pair is skipped.
 OVERLAP_TOLERANCE_S = 5.0
@@ -69,6 +71,8 @@ def synthesize_ads_from_cue_pairs(
     min_confidence: float = DEFAULT_MIN_PAIR_CONFIDENCE,
     min_break_s: float = DEFAULT_MIN_BREAK_S,
     max_break_s: float = DEFAULT_MAX_BREAK_S,
+    total_duration: float = 0.0,
+    max_break_fraction: float = DEFAULT_MAX_BREAK_FRACTION,
 ) -> List[Dict]:
     """Return ``ads`` with cue-pair-derived synthetic entries appended.
 
@@ -82,9 +86,17 @@ def synthesize_ads_from_cue_pairs(
             qualify.
         max_break_s: Maximum gap; pairs beyond this are skipped because the
             two cues are more likely two separate boundaries.
+        total_duration: Episode duration (s); 0 disables the fraction guard.
+        max_break_fraction: Reject a pair spanning more than this fraction of
+            ``total_duration`` -- a short-episode phantom-ad backstop.
     """
     if not audio_analysis_result:
         return list(ads)
+    # On a short episode the absolute max_break_s cap can pass a pair that
+    # brackets most of the show. Tighten the cap to a fraction of the episode.
+    effective_max_break = max_break_s
+    if total_duration > 0 and max_break_fraction > 0:
+        effective_max_break = min(max_break_s, max_break_fraction * total_duration)
     raw_cues = audio_analysis_result.get_signals_by_type('audio_cue')
     # Only precise template cues may *create* ads. Spectral-fallback cues (no
     # 'source' key) are too coarse to synthesize from: on a no-template feed a
@@ -129,8 +141,9 @@ def synthesize_ads_from_cue_pairs(
                 # Too close: probably the same boundary's stinger reflected
                 # back; skip cue_b for *this* cue_a and try the next one.
                 continue
-            if gap > max_break_s:
-                # No further cue within range; stop pairing for cue_a.
+            if gap > effective_max_break:
+                # No further cue within range (or the span would cover too much
+                # of a short episode); stop pairing for cue_a.
                 break
             synth_start = round(cue_a.end + 0.05, 3)
             synth_end = round(cue_b.start - 0.05, 3)
