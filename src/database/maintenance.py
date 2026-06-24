@@ -84,8 +84,8 @@ class MaintenanceMixin:
                FROM episodes e
                JOIN podcasts p ON e.podcast_id = p.id
                WHERE e.processed_file IS NOT NULL
-                 AND e.processed_at < ?
-                 AND e.processed_at >= ?
+                 AND COALESCE(e.processed_at, e.updated_at) < ?
+                 AND COALESCE(e.processed_at, e.updated_at) >= ?
                  AND e.status = 'processed'""",
             (original_cutoff, processed_cutoff),
         ).fetchall()
@@ -143,7 +143,7 @@ class MaintenanceMixin:
                    FROM episodes e
                    JOIN podcasts p ON e.podcast_id = p.id
                    WHERE e.processed_file IS NOT NULL
-                     AND e.processed_at < ?
+                     AND COALESCE(e.processed_at, e.updated_at) < ?
                      AND e.status IN ('processed', 'failed', 'permanently_failed')""",
                 (cutoff_str,)
             )

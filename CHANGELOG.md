@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.0] - 2026-06-24
+
+### Fixed
+
+- Retention now sweeps episodes that were processed before the completion time was being recorded. The cleanup compared each episode's `processed_at` against the cutoff, but a long run of episodes finished without that field ever being set, and in SQL a comparison against a missing value is never true, so the sweep skipped them: a 30-day setting still had four-month-old audio on disk. Processing now records the completion time on every episode it finalizes, and for older rows that never got one the sweep falls back to the episode's last-updated time, so both groups age out. That fallback time is bumped by a reprocess or a metadata edit, so an older un-recorded episode touched recently can outlast its window until it is processed again.
+
+### Changed
+
+- The "Keep original audio" setting says what it is actually for. The label and help text described it as ad-boundary review only, but the retained original also drives the audio cue tools and reprocessing, so the copy now names all three uses.
+
+### Documentation
+
+- The web interface guide documents the editable per-feed display title: it rewrites the served feed's `<title>` for subscribers while leaving the source title alone.
+
 ## [2.20.0] - 2026-06-23
 
 ### Added

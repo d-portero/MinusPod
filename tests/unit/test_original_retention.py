@@ -204,3 +204,61 @@ def test_pre_pass_handles_storage_failure_gracefully(db):
     storage.delete_original_only.assert_called_once()
     assert reset_count == 0  # main pass did not own this row
     assert freed_mb == 0.0
+
+
+def _seed_null_processed_at(db, slug, ep_id, updated_at):
+    """A processed episode with processed_at NULL (the pre-fix shape: processing
+    never stamped it) and a backdated updated_at."""
+    if not db.get_podcast_by_slug(slug):
+        db.create_podcast(slug, f'https://example.com/{slug}.xml', slug)
+    db.upsert_episode(
+        slug, ep_id,
+        original_url=f'https://example.com/{ep_id}.mp3',
+        title=f'Episode {ep_id}',
+        status='processed',
+    )
+    conn = db.get_connection()
+    conn.execute(
+        "UPDATE episodes SET processed_file = ?, processed_at = NULL, "
+        "updated_at = ?, status = 'processed' WHERE episode_id = ?",
+        (f'{ep_id}.mp3', updated_at, ep_id),
+    )
+    conn.commit()
+
+
+def test_cleanup_resets_null_processed_at_via_updated_at(db):
+    """Regression: episodes processed before processed_at was stamped have
+    processed_at NULL, and `processed_at < cutoff` (a NULL comparison) silently
+    skipped them, so nothing was ever cleaned. With COALESCE(processed_at,
+    updated_at) the old episode is reset using updated_at as the fallback date."""
+    db.set_setting('retention_days', '30', is_default=False)
+    db.set_setting('keep_original_audio', 'false', is_default=False)
+    _seed_null_processed_at(
+        db, 'show-null', 'ep-old',
+        _iso(datetime.now(timezone.utc) - timedelta(days=40)),
+    )
+
+    storage = MagicMock()
+    storage.cleanup_episode_files.return_value = 1_000_000
+
+    reset_count, _ = db.cleanup_old_episodes(storage=storage)
+
+    assert reset_count == 1
+    assert db.get_episode('show-null', 'ep-old')['status'] == 'discovered'
+
+
+def test_cleanup_keeps_null_processed_at_within_window(db):
+    """NULL processed_at but updated_at within the retention window: COALESCE
+    falls back to updated_at, so the episode is kept."""
+    db.set_setting('retention_days', '30', is_default=False)
+    db.set_setting('keep_original_audio', 'false', is_default=False)
+    _seed_null_processed_at(
+        db, 'show-null2', 'ep-recent',
+        _iso(datetime.now(timezone.utc) - timedelta(days=5)),
+    )
+
+    storage = MagicMock()
+    reset_count, _ = db.cleanup_old_episodes(storage=storage)
+
+    assert reset_count == 0
+    assert db.get_episode('show-null2', 'ep-recent')['status'] == 'processed'

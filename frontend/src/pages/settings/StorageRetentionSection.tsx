@@ -84,14 +84,14 @@ function StorageRetentionSection({
               checked={keepOriginalAudio}
               onChange={onKeepOriginalAudioChange}
               disabled={keepOriginalSaveIsPending}
-              ariaLabel="Keep original audio for ad boundary review"
+              ariaLabel="Keep original audio after processing"
             />
             <span className="text-sm font-medium text-foreground">
-              Keep original audio for ad boundary review
+              Keep original audio after processing
             </span>
           </label>
           <p className="mt-2 text-sm text-muted-foreground">
-            Retains the pre-cut audio file alongside the processed output so the ad editor can play what was removed. Roughly doubles per-episode audio storage. Only applies to new episodes processed after this is enabled.
+            Retains the pre-cut audio alongside the processed output. The ad editor plays it back to show what was removed, and the audio cue tools and reprocessing rely on it too. Roughly doubles per-episode audio storage. Only applies to new episodes processed after this is enabled.
           </p>
 
           <div className="mt-4 flex items-center gap-3">

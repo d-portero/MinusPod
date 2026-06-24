@@ -29,6 +29,12 @@ The server includes a web-based management UI at `/ui/`:
 - Multiple dark themes (Tokyo Night, Dracula, Catppuccin, Nord, Gruvbox, Solarized, and more) with light/dark toggle
 - Installable as Progressive Web App (PWA)
 
+### Feed Display Title
+
+Each feed's title is editable. On the feed detail page, click the pencil next to the feed name, type a new name, and Save. Subscribers see this name in their podcast app: MinusPod rewrites the `<title>` in the served RSS and leaves the source feed's own title untouched. A "Custom" badge marks a feed that has an override; saving the field blank drops back to the source title.
+
+Titles are capped at 500 characters and collapsed to one line, so a rename or a suffix like " (ad-free)" works, while newlines and control characters are stripped to keep the feed well-formed. Saving a new title regenerates the served feed, so the name updates on the app's next refresh.
+
 ### Sponsors and Normalizations
 
 The Sponsors page lists known sponsors, each with its linked ad-pattern count, created date, last-matched date, and tags. You can add and edit a sponsor's name, aliases, category, and tags, toggle it active or inactive, filter by tag, search by name, and reveal inactive sponsors.

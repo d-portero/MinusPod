@@ -21,6 +21,7 @@ from ad_reviewer import (
     AdReviewer, ReviewVerdict, split_resurrection_pool,
 )
 from cancel import ProcessingCancelled, _check_cancel, _cancel_events, _cancel_events_lock
+from utils.time import utc_now_iso
 from config import (
     MIN_CUT_CONFIDENCE, MAX_EPISODE_RETRIES,
     AUDIO_CUE_SNAP_CONFIDENCE, AUDIO_CUE_PAIR_CONFIDENCE,
@@ -1367,6 +1368,7 @@ def _persist_episode_state(slug, episode_id, pass1_cut_count, verification_count
     processed_file_rel = episode_relative_path(episode_id, processed_version)
     db.upsert_episode(slug, episode_id,
         status=EpisodeStatus.PROCESSED.value,
+        processed_at=utc_now_iso(),
         processed_file=processed_file_rel,
         processed_version=processed_version or 0,
         original_file=original_file_rel,
