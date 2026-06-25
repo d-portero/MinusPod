@@ -28,6 +28,11 @@ def _clear_episode_for_mode(db, slug, episode_id, mode):
     """Clear cached detection data before a reprocess. LLM-only mode keeps the
     saved transcript (clears just the ad-detection outputs) so transcription is
     skipped; every other mode wipes the whole episode_details row."""
+    if mode == 'recut':
+        # Recut re-cuts the retained original from the saved ad detections and
+        # re-times the saved transcript; clearing either would break it. The
+        # derived audio/VTT/chapters are overwritten during the recut.
+        return
     if mode == 'llm':
         db.clear_episode_ad_data(slug, episode_id)
     else:
@@ -1075,14 +1080,18 @@ def reprocess_episode_with_mode(slug, episode_id):
     - full: Skip pattern DB entirely, Claude does fresh analysis without learned patterns
     - llm: Re-run ad detection and re-cut using the SAVED transcript, skipping
       re-transcription (issue #349). Requires an existing transcript.
+    - recut: Re-cut the retained original audio from the CURRENT ad detections
+      (applying the user's edits) and re-time the saved transcript. No
+      transcription or LLM (issue #422). Requires the retained original audio,
+      saved segments, and existing ad markers.
     """
     db = get_database()
 
     data = request.get_json() or {}
     mode = data.get('mode', 'reprocess')
 
-    if mode not in ('reprocess', 'full', 'llm'):
-        return error_response('Invalid mode. Use "reprocess", "full", or "llm"', 400)
+    if mode not in ('reprocess', 'full', 'llm', 'recut'):
+        return error_response('Invalid mode. Use "reprocess", "full", "llm", or "recut"', 400)
 
     episode = db.get_episode(slug, episode_id)
     if not episode:
@@ -1101,6 +1110,22 @@ def reprocess_episode_with_mode(slug, episode_id):
         return error_response(
             'No transcript available for LLM-only reprocess. '
             'Use "reprocess" or "full" to re-transcribe first.', 400)
+
+    # Recut cuts the retained original from the saved detections and re-times the
+    # saved segments; it cannot run if any of those inputs are missing. Fail with
+    # an actionable message rather than silently falling back to an LLM reprocess.
+    if mode == 'recut':
+        if not get_storage().get_original_path(slug, episode_id).exists():
+            return error_response(
+                'Original audio was not retained for this episode, so it cannot '
+                'be re-cut. Use "reprocess" or "full" to rebuild it from source.', 409)
+        if not db.get_original_segments(slug, episode_id):
+            return error_response(
+                'No saved transcript segments for this episode; recut needs them '
+                'to re-time the transcript. Use "reprocess" or "full" first.', 409)
+        if not episode.get('ad_markers_json'):
+            return error_response(
+                'No ad detections to cut. Detect ads first with "reprocess" or "full".', 409)
 
     try:
         # 1. Set reprocess_mode FIRST so process_episode can read it

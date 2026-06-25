@@ -73,7 +73,7 @@ function EpisodeDetail() {
   });
 
   const reprocessMutation = useMutation({
-    mutationFn: (mode: 'reprocess' | 'full' | 'llm') => reprocessEpisode(slug!, episodeId!, mode),
+    mutationFn: (mode: 'reprocess' | 'full' | 'llm' | 'recut') => reprocessEpisode(slug!, episodeId!, mode),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['episode', slug, episodeId] });
       setShowReprocessMenu(false);
@@ -279,10 +279,10 @@ function EpisodeDetail() {
                   </svg>
                 </button>
                 {showReprocessMenu && !reprocessMutation.isPending && episode.status !== 'processing' && (
-                  <div className="absolute top-full right-0 mt-1 w-52 bg-card border border-border rounded-lg shadow-lg z-10">
+                  <div className="absolute top-full right-0 mt-1 w-52 bg-card border border-border rounded-lg shadow-lg z-10 overflow-hidden">
                     <button
                       onClick={() => reprocessMutation.mutate('reprocess')}
-                      className="w-full px-3 py-2 text-left text-sm hover:bg-accent rounded-t-lg"
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-accent"
                       title="Use learned patterns + AI analysis"
                     >
                       <div className="font-medium">Reprocess</div>
@@ -290,12 +290,22 @@ function EpisodeDetail() {
                     </button>
                     <button
                       onClick={() => reprocessMutation.mutate('full')}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-accent border-t border-border ${!episode.transcriptVttAvailable ? 'rounded-b-lg' : ''}`}
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-accent border-t border-border"
                       title="Skip pattern DB, AI analyzes everything fresh"
                     >
                       <div className="font-medium">Full Analysis</div>
                       <div className="text-xs text-muted-foreground">Skip patterns, AI only</div>
                     </button>
+                    {episode.hasOriginalAudio && (
+                      <button
+                        onClick={() => reprocessMutation.mutate('recut')}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-accent border-t border-border"
+                        title="Re-cut the original audio from your current ad edits (no transcription or AI)"
+                      >
+                        <div className="font-medium">Recut Audio</div>
+                        <div className="text-xs text-muted-foreground">Apply edits, no AI</div>
+                      </button>
+                    )}
                     {episode.transcriptVttAvailable && (
                       <button
                         onClick={() => reprocessMutation.mutate('llm')}
@@ -313,7 +323,7 @@ function EpisodeDetail() {
                           setShowReprocessMenu(false);
                         }}
                         disabled={regenerateChaptersMutation.isPending}
-                        className="w-full px-3 py-2 text-left text-sm hover:bg-accent rounded-b-lg border-t border-border disabled:opacity-50"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-accent border-t border-border disabled:opacity-50"
                         title="Regenerate chapters from existing transcript"
                       >
                         <div className="font-medium">Regenerate Chapters</div>

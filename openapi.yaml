@@ -968,7 +968,7 @@ paths:
               properties:
                 mode:
                   type: string
-                  enum: [reprocess, full, llm]
+                  enum: [reprocess, full, llm, recut]
                   default: reprocess
                   description: |
                     Processing mode:
@@ -976,6 +976,10 @@ paths:
                     - full: AI only, skip pattern DB (fresh analysis)
                     - llm: Re-detect + re-cut using the saved transcript (skips
                       re-transcription); requires an existing transcript
+                    - recut: Re-cut the retained original from the current ad
+                      detections (applying edits) and re-time the saved
+                      transcript; no transcription or AI. Requires the retained
+                      original audio, saved segments, and existing ad markers
       responses:
         '200':
           description: Episode reprocessing started

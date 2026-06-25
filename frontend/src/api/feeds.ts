@@ -159,7 +159,7 @@ export async function getArtwork(slug: string): Promise<string> {
 export async function reprocessEpisode(
   slug: string,
   episodeId: string,
-  mode: 'reprocess' | 'full' | 'llm' = 'reprocess'
+  mode: 'reprocess' | 'full' | 'llm' | 'recut' = 'reprocess'
 ): Promise<{ message: string; mode: string }> {
   return apiRequest<{ message: string; mode: string }>(`/episodes/${slug}/${episodeId}/reprocess`, {
     method: 'POST',

@@ -262,9 +262,7 @@ def _download_and_transcribe(slug, episode_id, episode_url, podcast_name):
         # process_episode operate on the copy, never on the retained original.
         original_path = storage.get_original_path(slug, episode_id)
         if original_path and os.path.exists(original_path):
-            fd, audio_path = tempfile.mkstemp(suffix='.mp3')
-            os.close(fd)
-            shutil.copyfile(original_path, audio_path)
+            audio_path = _copy_retained_original_to_temp(original_path)
             audio_logger.info(f"[{slug}:{episode_id}] Reusing retained original audio (skipped download)")
         else:
             available, cdn_error = transcriber.check_audio_availability(episode_url)
@@ -1542,6 +1540,202 @@ def _finalize_episode(slug, episode_id, episode_title, podcast_name,
     )
 
 
+def _copy_retained_original_to_temp(original_path):
+    """Copy a retained original to a fresh temp file so the later retain-move and
+    cleanup-unlink operate on the copy, never on the retained original. Returns
+    the temp path."""
+    fd, tmp_path = tempfile.mkstemp(suffix='.mp3')
+    os.close(fd)
+    shutil.copyfile(original_path, tmp_path)
+    return tmp_path
+
+
+def _best_overlap_ad(all_ads, start, end, exclude_ids=None):
+    """Return the ad in all_ads with the most time-overlap with [start, end], or
+    None when nothing overlaps. Maps a stored boundary-adjustment correction
+    back onto its ad."""
+    exclude_ids = exclude_ids or set()
+    best, best_overlap = None, 0.0
+    for ad in all_ads:
+        if id(ad) in exclude_ids:
+            continue
+        a_start, a_end = ad.get('start'), ad.get('end')
+        if a_start is None or a_end is None:
+            continue
+        overlap = min(end, a_end) - max(start, a_start)
+        if overlap > best_overlap:
+            best, best_overlap = ad, overlap
+    return best if best_overlap > 0 else None
+
+
+def _apply_boundary_adjustments(slug, episode_id, all_ads):
+    """Override ad bounds with the user's boundary_adjustment corrections so a
+    recut cuts the adjusted spans. Each is matched to its ad by original-bounds
+    overlap; newest wins; unmatched corrections are skipped."""
+    corrections = db.get_episode_corrections(episode_id) or []
+    adjusted = set()
+    applied = 0
+    for c in corrections:  # newest first (ORDER BY created_at DESC)
+        if c.get('correction_type') != 'boundary_adjustment':
+            continue
+        orig = c.get('original_bounds') or {}
+        new = c.get('corrected_bounds') or {}
+        o_start, o_end = orig.get('start'), orig.get('end')
+        n_start, n_end = new.get('start'), new.get('end')
+        if None in (o_start, o_end, n_start, n_end):
+            continue
+        match = _best_overlap_ad(all_ads, o_start, o_end, exclude_ids=adjusted)
+        if match is None:
+            audio_logger.info(
+                f"[{slug}:{episode_id}] Recut: boundary adjustment "
+                f"{o_start:.1f}s-{o_end:.1f}s has no matching ad; skipping"
+            )
+            continue
+        match['start'], match['end'] = n_start, n_end
+        adjusted.add(id(match))
+        applied += 1
+    if applied:
+        audio_logger.info(f"[{slug}:{episode_id}] Recut: applied {applied} boundary adjustment(s)")
+
+
+def _build_recut_ad_list(slug, episode_id, segments, episode_duration,
+                          episode_description, min_cut_confidence):
+    """Build the cut list for a recut from the stored detections plus the user's
+    edits, with no re-detection. Manual adds already live in ad_markers_json;
+    boundary adjustments are applied here; rejects/confirms and confidence
+    gating run through the same AdValidator path a full reprocess uses. Returns
+    (ads_to_remove, all_ads_with_validation)."""
+    from ad_validator import AdValidator
+
+    episode = db.get_episode(slug, episode_id) or {}
+    raw = episode.get('ad_markers_json')
+    try:
+        all_ads = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        all_ads = []
+    if not all_ads:
+        return [], []
+
+    _apply_boundary_adjustments(slug, episode_id, all_ads)
+
+    false_positive_corrections, confirmed_corrections = _load_user_corrections(
+        slug, episode_id, db
+    )
+    validator = AdValidator(
+        episode_duration, segments, episode_description,
+        false_positive_corrections=false_positive_corrections,
+        confirmed_corrections=confirmed_corrections,
+        min_cut_confidence=min_cut_confidence,
+    )
+    validation_result = validator.validate(all_ads)
+    ads_to_remove, _low = _gate_validation_by_confidence(
+        slug, episode_id, validation_result.ads, min_cut_confidence
+    )
+    return ads_to_remove, validation_result.ads
+
+
+def _recut_episode(slug, episode_id, episode_title, podcast_name,
+                    episode_description, start_time, cancel_event=None):
+    """Recut mode (issue #422): re-cut the retained original audio from the
+    current ad detections and re-time the saved transcript -- no download,
+    transcription, detection, LLM, or verification pass. Preconditions
+    (retained original, saved segments, ad markers) are enforced by the API."""
+    from audio_processor import AudioProcessor
+
+    work_path = None
+    episode_data = db.get_episode(slug, episode_id)
+    try:
+        audio_logger.info(f"[{slug}:{episode_id}] Recut: \"{episode_title}\"")
+        status_service.start_job(slug, episode_id, episode_title, podcast_name)
+        status_service.update_job_stage("recut:loading", 10)
+        db.upsert_episode(slug, episode_id, status=EpisodeStatus.PROCESSING.value)
+
+        original_path = storage.get_original_path(slug, episode_id)
+        if not original_path.exists():
+            raise Exception("Retained original audio is missing; cannot recut")
+        work_path = _copy_retained_original_to_temp(original_path)
+
+        segments = db.get_original_segments(slug, episode_id)
+        if not segments:
+            raise Exception("No saved transcript segments; cannot recut")
+
+        settings = db.get_all_settings()
+        bitrate = settings.get('audio_bitrate', {}).get('value', '128k')
+        local_audio_processor = AudioProcessor(bitrate=bitrate)
+        original_duration = (local_audio_processor.get_audio_duration(work_path)
+                             or (segments[-1]['end'] if segments else 0))
+        min_cut_confidence = get_min_cut_confidence()
+
+        ads_to_remove, all_ads_with_validation = _build_recut_ad_list(
+            slug, episode_id, segments, original_duration,
+            episode_description, min_cut_confidence,
+        )
+        audio_logger.info(
+            f"[{slug}:{episode_id}] Recut: {len(ads_to_remove)} ad(s) to remove "
+            f"from {len(all_ads_with_validation)} marker(s)"
+        )
+        _check_cancel(cancel_event, slug, episode_id)
+
+        status_service.update_job_stage("recut:processing", 60)
+        result = local_audio_processor.process_episode(work_path, ads_to_remove)
+        if not result:
+            raise Exception("FFMPEG processing failed during recut")
+        processed_path, applied_cuts = result
+
+        # A requested cut the applied list dropped (merge/short-filter) stays in
+        # the audio; do not claim it was removed (mirrors the main pipeline).
+        uncovered = [ad for ad in ads_to_remove
+                     if not _covered_by_cuts(ad, applied_cuts, original_duration)]
+        for ad in uncovered:
+            ad['was_cut'] = False
+            for master in all_ads_with_validation:
+                if master is ad or (master.get('start') == ad.get('start')
+                                    and master.get('end') == ad.get('end')):
+                    master['was_cut'] = False
+                    break
+        storage.save_combined_ads(slug, episode_id, all_ads_with_validation)
+
+        new_duration = local_audio_processor.get_audio_duration(processed_path)
+
+        # processed_version is unaffected by the PROCESSING upsert above, so the
+        # episode row read at entry still has the prior version.
+        previous_version = (episode_data or {}).get('processed_version') or 0
+        new_version = previous_version + 1  # recut is always a reprocess
+        final_path = storage.get_episode_path(slug, episode_id, version=new_version)
+        shutil.move(processed_path, final_path)
+
+        status_service.update_job_stage("recut:assets", 85)
+        _generate_assets(slug, episode_id, segments, applied_cuts,
+                          episode_description, podcast_name, episode_title)
+
+        pass1_cut_count = sum(
+            1 for ad in ads_to_remove
+            if _covered_by_cuts(ad, applied_cuts, original_duration)
+        )
+        _finalize_episode(slug, episode_id, episode_title, podcast_name,
+                           pass1_cut_count, verification_count=0,
+                           first_pass_count=pass1_cut_count,
+                           original_duration=original_duration,
+                           new_duration=new_duration, start_time=start_time,
+                           processed_version=new_version,
+                           audio_cue_detections=0)
+        status_service.complete_job()
+        return True
+
+    except ProcessingCancelled:
+        raise
+    except Exception as e:
+        _handle_processing_failure(slug, episode_id, episode_title, podcast_name,
+                                    episode_data, e, start_time)
+        return False
+    finally:
+        if work_path and os.path.exists(work_path):
+            try:
+                os.unlink(work_path)
+            except OSError:
+                pass
+
+
 def _handle_processing_failure(slug, episode_id, episode_title, podcast_name,
                                 episode_data, error, start_time):
     """Handle processing failure: GPU cleanup, retry logic, error recording."""
@@ -1651,6 +1845,13 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
 
     if reprocess_mode:
         audio_logger.info(f"[{slug}:{episode_id}] Reprocess mode: {reprocess_mode} (skip_patterns={skip_patterns})")
+
+    # Recut (issue #422): re-cut the retained original from the current ad
+    # detections, no download/transcribe/detect/LLM. Branches before the full
+    # pipeline; preconditions are enforced by the reprocess API.
+    if reprocess_mode == 'recut':
+        return _recut_episode(slug, episode_id, episode_title, podcast_name,
+                              episode_description, start_time, cancel_event)
 
     podcast_settings = db.get_podcast_by_slug(slug)
     podcast_description = podcast_settings.get('description') if podcast_settings else None
