@@ -29,7 +29,6 @@ Memory and VRAM tables are in [docs/installation.md](docs/installation.md).
 cat > .env << EOF
 ANTHROPIC_API_KEY=your-key-here
 BASE_URL=http://localhost:8000
-APP_PASSWORD=your-password
 MINUSPOD_MASTER_PASSPHRASE=long-random-string-you-will-not-lose
 EOF
 

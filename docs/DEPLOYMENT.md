@@ -17,13 +17,12 @@ The GPU image is `ttlequals0/minuspod:<version>` and `:latest`. The CPU image is
 
 ## Minimum production environment
 
-The full reference is in [Environment Variables](environment-variables.md). The four worth setting on day one:
+The full reference is in [Environment Variables](environment-variables.md). The three worth setting on day one:
 
 | Variable | Why |
 |----------|-----|
 | `ANTHROPIC_API_KEY` (or other provider key) | Required for ad detection |
 | `BASE_URL` | Public URL embedded in generated RSS feeds |
-| `APP_PASSWORD` | Initial UI password; can also be set in Settings > Security |
 | `MINUSPOD_MASTER_PASSPHRASE` | Encrypts provider keys at rest. Losing it makes stored keys unrecoverable (env fallback still works). |
 
 If you are behind a reverse proxy or Cloudflare tunnel, also set `MINUSPOD_TRUSTED_PROXY_COUNT=1` (or higher for multi-hop chains) so login lockout and per-IP rate limits key on the real client IP.
@@ -186,7 +185,7 @@ Without `MINUSPOD_TRUSTED_PROXY_COUNT=1`, login lockout and per-IP rate limits w
 ## Security notes
 
 - Set `MINUSPOD_MASTER_PASSPHRASE` to encrypt provider API keys at rest. Without it they sit as plaintext in the SQLite DB. See [Security & Storage](security-and-storage.md).
-- Set an `APP_PASSWORD` (or one via Settings > Security) before exposing the UI publicly.
+- Set a password in Settings > Security before exposing the UI publicly.
 - Use `SESSION_COOKIE_SECURE=true` whenever you serve over HTTPS. Default is `true`; set to `false` only for plain-HTTP localhost development.
 - RSS feed URLs contain a slug but no auth, so podcast apps can fetch them. Treat slugs as semi-private.
 - Cloudflare Tunnel or a VPN is recommended for remote access. Direct port-forwarding works but skips Cloudflare's WAF.

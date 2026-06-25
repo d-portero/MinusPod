@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The log warns when a login happens over plain HTTP while `SESSION_COOKIE_SECURE` is on (the default). In that setup the browser drops the Secure session cookie, so the login returns 200 but the next request is unauthenticated and the UI bounces back to the login screen with nothing in the log to explain it. The warning names the fix: set `SESSION_COOKIE_SECURE=false` for plain HTTP, or serve over HTTPS. It stays quiet when `BASE_URL` is https, since there the request only looks insecure because TLS was terminated upstream (issue #423).
+
+### Documentation
+
+- Dropped `APP_PASSWORD` from the docs. The code no longer reads it anywhere; the UI password is set in Settings > Security and kept in the database. The docs still listed it as the way to seed the initial password, which sent people down a dead end (issue #423).
+
 ## [2.21.0] - 2026-06-24
 
 ### Fixed

@@ -34,7 +34,6 @@ Grouped by how often you'll touch them. **Standard** is what a typical deploymen
 | `VAD_GAP_START_MIN_SECONDS` | `3.0` | Minimum pre-transcript gap (seconds) at episode start that the VAD detector will cut. Anything shorter is left alone. Seeds fresh installs only. |
 | `VAD_GAP_MID_MIN_SECONDS` | `8.0` | Minimum mid-episode untranscribed gap. Standalone mid-gaps still require BOTH signoff-before AND resume-after context to emit; gaps adjacent to a detected ad extend that ad in place regardless of this threshold. Seeds fresh installs only. |
 | `VAD_GAP_TAIL_MIN_SECONDS` | `3.0` | Minimum post-transcript gap at episode end that the VAD detector will cut when no postroll marker already covers it. Seeds fresh installs only. |
-| `APP_PASSWORD` | _(none)_ | Initial password for web UI (can also be set in Settings > Security) |
 | `OLLAMA_API_KEY` | _(none)_ | Ollama Cloud key. Leave unset for local. |
 | `PODCAST_INDEX_API_KEY` | _(none)_ | PodcastIndex.org API key for podcast search |
 | `PODCAST_INDEX_API_SECRET` | _(none)_ | PodcastIndex.org API secret |

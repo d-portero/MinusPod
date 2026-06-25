@@ -1,7 +1,8 @@
 """Authentication routes: /auth/* endpoints."""
 import logging
+import os
 
-from flask import request, session
+from flask import current_app, request, session
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from utils.validation import is_public_ip_for_lockout
@@ -12,6 +13,34 @@ from api import (
 )
 
 logger = logging.getLogger('podcast.api')
+
+
+def _session_cookie_will_be_dropped(secure_cookie, request_is_secure, base_url):
+    """True when a just-set session cookie won't survive in the browser: it is
+    marked Secure but the request arrived over plain HTTP, so the browser
+    discards it and the next request looks logged out. Suppressed when BASE_URL
+    is https, which means TLS is terminated upstream and the request only looks
+    insecure because the proxy hop count is unset (warned about separately)."""
+    if not secure_cookie or request_is_secure:
+        return False
+    return not base_url.lower().startswith('https')
+
+
+def _warn_if_session_cookie_unstorable():
+    """Log how to fix the silent login-bounce loop a Secure cookie causes over
+    plain HTTP. Called right after authenticating so the warning lands next to
+    the successful-login line in the operator's logs."""
+    if _session_cookie_will_be_dropped(
+        current_app.config.get('SESSION_COOKIE_SECURE', True),
+        request.is_secure,
+        os.environ.get('BASE_URL', ''),
+    ):
+        logger.warning(
+            "Login authenticated over plain HTTP while SESSION_COOKIE_SECURE is "
+            "enabled; the browser will discard the session cookie and bounce the "
+            "user back to the login screen. Set SESSION_COOKIE_SECURE=false to "
+            "serve over plain HTTP, or put the UI behind HTTPS."
+        )
 
 
 # ========== Authentication Endpoints ==========
@@ -95,6 +124,7 @@ def auth_login():
     session.permanent = True
     session['authenticated'] = True
     logger.info(f"Successful login from {ip}")
+    _warn_if_session_cookie_unstorable()
 
     return json_response({
         'authenticated': True,
@@ -188,6 +218,7 @@ def auth_set_password():
     session.clear()
     session.permanent = True
     session['authenticated'] = True
+    _warn_if_session_cookie_unstorable()
 
     return json_response({
         'message': f"Password {'changed' if password_set else 'set'} successfully",

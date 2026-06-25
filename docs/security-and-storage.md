@@ -16,7 +16,7 @@ The docker-compose includes an optional Cloudflare tunnel service for secure rem
 
 The tunnel exposes the admin interface to the public internet. Without all of these set, anyone who reaches the tunnel URL can hit unauthenticated paths and attempt to log in:
 
-1. Set a password via Settings > Security (or seed with `APP_PASSWORD`).
+1. Set a password via Settings > Security.
 2. `SESSION_COOKIE_SECURE=true` (the default).
 3. `MINUSPOD_MASTER_PASSPHRASE` set so provider API keys are encrypted at rest.
 4. Cloudflare WAF rule blocking `/ui` and `/api` (see below). The docs and OpenAPI spec live under `/api/v1/docs` and `/api/v1/openapi.yaml`, so they're already covered by the `/api` block.
@@ -47,7 +47,7 @@ Operator checklist:
 - Serve over HTTPS (`SESSION_COOKIE_SECURE=true` is the default).
 - `MINUSPOD_TRUSTED_PROXY_COUNT=1` if behind a reverse proxy.
 - `MINUSPOD_MASTER_PASSPHRASE` set so provider keys encrypt at rest.
-- Set `APP_PASSWORD` (or a password in Settings > Security). Until one is set, the API serves only read-only and setup routes; backup, cleanup, provider, and feed-mutation endpoints return 403.
+- Set a password in Settings > Security. Until one is set, the API serves only read-only and setup routes; backup, cleanup, provider, and feed-mutation endpoints return 403.
 - `MINUSPOD_ENABLE_HSTS=true` once the deployment is HTTPS-only.
 - WAF block on `/ui` and `/api`. Public feed paths must stay reachable: `/<slug>`, `/episodes/<slug>/<episode>.mp3`, `.vtt`, `/chapters.json`, and `/api/v1/feeds/<slug>/artwork`.
 
