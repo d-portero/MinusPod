@@ -31,20 +31,20 @@ export function formatTime(seconds: number): string {
   return `${sign}${m}:${s.toFixed(1).padStart(4, '0')}`;
 }
 
-// Read the current theme's wave + progress colors from the CSS vars
-// that already drive the rest of the UI, so the waveform shifts with
-// the active theme instead of staying fixed at slate/cyan.
+// Canonical waveform color for both audio-editor modals (cue + ad edit). Both
+// render their own amber playhead overlay (cursorColor transparent), so
+// wavesurfer's built-in unplayed/played split is unused -- left to its default
+// it would only show a muted grey waveform at rest. Return the theme primary
+// for BOTH the bar and the progress fill so the two editors read as one vivid,
+// identically-themed waveform. Single source: changing this shifts both.
 export function getThemeWaveformColors(): { waveColor: string; progressColor: string } {
   if (typeof window === 'undefined') {
-    return { waveColor: '#64748b', progressColor: '#22d3ee' };
+    return { waveColor: '#22d3ee', progressColor: '#22d3ee' };
   }
-  const cs = getComputedStyle(document.documentElement);
-  const muted = cs.getPropertyValue('--muted-foreground').trim();
-  const primary = cs.getPropertyValue('--primary').trim();
-  return {
-    waveColor: muted ? `hsl(${muted})` : '#64748b',
-    progressColor: primary ? `hsl(${primary})` : '#22d3ee',
-  };
+  const primary = getComputedStyle(document.documentElement)
+    .getPropertyValue('--primary').trim();
+  const color = primary ? `hsl(${primary})` : '#22d3ee';
+  return { waveColor: color, progressColor: color };
 }
 
 export function loadPlayWhileDragging(): boolean {

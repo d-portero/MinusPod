@@ -295,16 +295,21 @@ def resolve_detection_mode(db, slug):
 #   'end'      - eligible to snap an ad END edge; closes a cue pair.
 #   'boundary' - both of the above (default; also the role of the spectral
 #                fallback's role-less cues, so legacy behavior is unchanged).
-#   'non_ad'   - intro/outro: never snaps or pairs; only tells the model the
-#                sound marks the show's open/close, not an ad boundary.
+#   'non_ad'   - never snaps or pairs; only hints the model. Used by intro/outro
+#                (show open/close) and content_transition (segment transitions).
 AUDIO_CUE_TYPES = {
     'ad_break_boundary': ('ad-break boundary', 'boundary'),
     'ad_break_start': ('ad-break start', 'start'),
     'ad_break_end': ('ad-break end', 'end'),
     'show_intro': ('show intro', 'non_ad'),
     'show_outro': ('show outro', 'non_ad'),
+    # A jingle reused across non-ad transitions (intro, ad-exit, segment changes,
+    # outro). non_ad so it never forces an ad cut; the prompt hints the model the
+    # topic shifts there without claiming an ad boundary (#350 follow-up).
+    'content_transition': ('content transition', 'non_ad'),
 }
 AUDIO_CUE_TYPE_DEFAULT = 'ad_break_boundary'
+AUDIO_CUE_TYPE_CONTENT_TRANSITION = 'content_transition'
 # The two non_ad types that anchor where show content begins / ends. Audio
 # before the first intro or after the last outro is biased toward pre/post-roll
 # ads in the prompt (#350 follow-up).

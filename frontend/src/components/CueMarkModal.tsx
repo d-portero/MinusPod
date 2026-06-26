@@ -1,11 +1,13 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import WaveSurfer from 'wavesurfer.js';
 import { usePeaks } from './ad-editor/usePeaks';
+import { usePeakSlice } from './ad-editor/usePeakSlice';
 import { Pin } from './ad-editor/Pin';
 import { snapToOnset } from './ad-editor/snapToOnset';
 import TransportBar from './ad-editor/TransportBar';
 import ZoomControl from './ad-editor/ZoomControl';
+import { useWaveformWindow } from './ad-editor/useWaveformWindow';
 import { primaryBtn, ctrlBtn } from './ad-editor/controlStyles';
 import {
   formatTime,
@@ -98,22 +100,19 @@ function CueMarkModal({
     () => captureMaxForType(cueType, captureMaxSeconds, captureMaxIntroSeconds, captureMaxOutroSeconds),
     [cueType, captureMaxSeconds, captureMaxIntroSeconds, captureMaxOutroSeconds],
   );
-  const [zoom, setZoom] = useState(1);
-  // Windowed rendering: zoom narrows the rendered time-span (kept to about one
-  // screen-width at any zoom) instead of widening a giant canvas. wavesurfer
-  // caps its render at ~16000px and leaves everything past that blank, so the
-  // old "whole episode, zoom widens the canvas" approach went blank at the far
-  // end. At 1x the window is the whole episode. Deferred so dragging the zoom
-  // slider / scrubber stays responsive while the windowed peaks re-fetch.
-  const [windowCenter, setWindowCenter] = useState(() => (defaults.cueStart + defaults.cueEnd) / 2);
-  const deferredZoom = useDeferredValue(zoom);
-  const deferredCenter = useDeferredValue(windowCenter);
-  const { windowStart, windowEnd } = useMemo(() => {
-    const winDur = Math.min(totalDuration, Math.max(0.5, totalDuration / Math.max(1, deferredZoom)));
-    let start = Math.max(0, Math.min(totalDuration - winDur, deferredCenter - winDur / 2));
-    if (!Number.isFinite(start)) start = 0;
-    return { windowStart: start, windowEnd: start + winDur };
-  }, [deferredZoom, deferredCenter, totalDuration]);
+  // Windowed zoom, shared with the ad editor (issue #350): zoom narrows the
+  // rendered span around the playhead instead of widening a giant canvas (which
+  // wavesurfer blanks past ~16000px). The playhead ref lets a zoom recenter on
+  // the cursor without re-running the RAF loop.
+  // Seed the playhead at the initial view center so a zoom BEFORE playback
+  // (when audio.currentTime is still 0) recenters on the cue, not episode start.
+  const playheadRef = useRef((defaults.cueStart + defaults.cueEnd) / 2);
+  const {
+    zoom, setZoom, zoomIn, zoomOut, windowStart, windowEnd, windowCenter, setWindowCenter,
+  } = useWaveformWindow(
+    totalDuration, (defaults.cueStart + defaults.cueEnd) / 2, playheadRef,
+    ZOOM_MIN, ZOOM_MAX,
+  );
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -164,14 +163,7 @@ function CueMarkModal({
   const windowDuration = Math.max(0.001, windowEnd - windowStart);
 
   // Peaks for just the visible window (a slice of the full-episode peaks).
-  const windowPeaks = useMemo(() => {
-    if (!peaks) return null;
-    const bucket = peakResolutionMs / 1000;
-    if (!(bucket > 0)) return peaks;
-    const startIdx = Math.max(0, Math.floor(windowStart / bucket));
-    const endIdx = Math.min(peaks.length, Math.ceil(windowEnd / bucket));
-    return endIdx > startIdx ? peaks.slice(startIdx, endIdx) : peaks;
-  }, [peaks, peakResolutionMs, windowStart, windowEnd]);
+  const windowPeaks = usePeakSlice(peaks, peakResolutionMs, windowStart, windowEnd);
 
   // Close on Escape, matching the rest of the app's modal behaviour.
   useEffect(() => {
@@ -200,7 +192,7 @@ function CueMarkModal({
     // Recenter the rendered window on the jump target so it stays visible when
     // zoomed in (a no-op at 1x where the window is the whole episode).
     setWindowCenter(clamped);
-  }, [totalDuration]);
+  }, [totalDuration, setWindowCenter]);
 
   // Full-episode scrubber: drag to pan the zoomed window across the episode.
   const panToClientX = useCallback((clientX: number) => {
@@ -209,7 +201,7 @@ function CueMarkModal({
     const rect = el.getBoundingClientRect();
     const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     setWindowCenter(frac * totalDuration);
-  }, [totalDuration]);
+  }, [totalDuration, setWindowCenter]);
   const onScrubberPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     panToClientX(e.clientX);
@@ -289,18 +281,15 @@ function CueMarkModal({
   // so wavesurfer never has to render past its ~16000px cap.
   useEffect(() => {
     if (!waveformRef.current || !windowPeaks) return;
-    // Color the bars with the theme accent (primary) so the capture waveform is
-    // vividly themed -- matching how the ad editor's waveform reads in each
-    // theme rather than the muted grey wavesurfer would otherwise show at rest.
-    const themeWave = getThemeWaveformColors();
     const ws = WaveSurfer.create({
       container: waveformRef.current,
       height: 110,
       normalize: true,
       peaks: [windowPeaks],
       duration: windowDuration,
-      waveColor: themeWave.progressColor,
-      progressColor: themeWave.progressColor,
+      // Solid theme-primary bars, shared with the ad editor (getThemeWaveformColors
+      // returns waveColor == progressColor); our own amber playhead shows position.
+      ...getThemeWaveformColors(),
       // Render our own amber playhead overlay instead of wavesurfer's built-in
       // cursor; the built-in one is easy to confuse with a pin.
       cursorColor: 'transparent',
@@ -341,6 +330,7 @@ function CueMarkModal({
       if (audio && cursor) {
         const t = audio.currentTime;
         setPlayheadTime(t);
+        playheadRef.current = t;
         const rel = (t - windowStart) / windowDuration;
         if (rel >= 0 && rel <= 1) {
           cursor.style.left = `${rel * 100}%`;
@@ -737,9 +727,9 @@ function CueMarkModal({
           min={ZOOM_MIN}
           max={ZOOM_MAX}
           step={1}
-          onChange={setZoom}
-          onZoomIn={() => setZoom((z) => Math.min(ZOOM_MAX, +(z * 1.5).toFixed(2)))}
-          onZoomOut={() => setZoom((z) => Math.max(ZOOM_MIN, +(z / 1.5).toFixed(2)))}
+          onChange={(z) => setZoom(z)}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
         />
 
         {/* Playback transport -- shared with the "Add new ad" editor. */}
@@ -757,6 +747,20 @@ function CueMarkModal({
           inSelection={inCue}
           selectionLabel="in cue"
           onPlaySelection={playSelection}
+          selectionInfo={
+            <span className={regionDurationValid ? 'text-foreground' : 'text-destructive font-medium'}>
+              {regionDuration.toFixed(2)}s
+              {!regionDurationValid && (
+                <span className="ml-1.5 text-[10px]">
+                  {regionDuration <= 0
+                    ? 'start before end'
+                    : regionDuration < MIN_REGION_SECONDS
+                      ? `min ${MIN_REGION_SECONDS}s`
+                      : `max ${MAX_REGION_SECONDS}s`}
+                </span>
+              )}
+            </span>
+          }
         />
 
         {/* Cue-specific controls: snap to onset + set edge at playhead. */}
@@ -775,7 +779,7 @@ function CueMarkModal({
           </button>
         </div>
 
-        {/* Time inputs + duration + label. */}
+        {/* Time inputs + cue type. (Duration rides on the transport row.) */}
         <div className="flex flex-wrap items-end gap-3 mt-3">
           <div>
             <label className="block text-xs text-muted-foreground" htmlFor="cue-start-in">Start</label>
@@ -811,21 +815,6 @@ function CueMarkModal({
               className={`w-24 px-3 py-1.5 ${fieldCls} text-sm font-mono text-rose-500`}
             />
           </div>
-          <p className="text-sm">
-            Duration:{' '}
-            <span className={regionDurationValid ? 'font-medium' : 'font-medium text-destructive'}>
-              {regionDuration.toFixed(2)}s
-            </span>
-            {!regionDurationValid && (
-              <span className="ml-2 text-xs text-destructive">
-                {regionDuration <= 0
-                  ? 'Start must be before end'
-                  : regionDuration < MIN_REGION_SECONDS
-                    ? `Min ${MIN_REGION_SECONDS}s`
-                    : `Max ${MAX_REGION_SECONDS}s`}
-              </span>
-            )}
-          </p>
           <div className="flex-1 min-w-[220px]">
             <label className="block text-xs text-muted-foreground" htmlFor="cue-type-in">Cue type</label>
             <select

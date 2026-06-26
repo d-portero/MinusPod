@@ -122,6 +122,38 @@ function Settings() {
     });
     setSettingsMatchKeys(matches);
   };
+  // Paint the matched query text yellow within the searchable region as the user
+  // types -- CSS Custom Highlight API, so no DOM mutation and React stays in
+  // charge of the tree. Runs after the filter commit so ranges point at the
+  // freshly expanded sections; no-op where the API is unavailable (filtering
+  // still works). offsetParent skips text in display:none (non-matching) cards.
+  useEffect(() => {
+    if (typeof CSS === 'undefined' || !('highlights' in CSS)) return;
+    const norm = settingsQuery.trim().toLowerCase();
+    const region = searchRegionRef.current;
+    if (!norm || !region) {
+      CSS.highlights.delete('settings-search');
+      return;
+    }
+    const ranges: Range[] = [];
+    const walker = document.createTreeWalker(region, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) =>
+        n.nodeValue && n.parentElement?.offsetParent
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT,
+    });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const hay = n.nodeValue!.toLowerCase();
+      for (let i = hay.indexOf(norm); i !== -1; i = hay.indexOf(norm, i + norm.length)) {
+        const r = document.createRange();
+        r.setStart(n, i);
+        r.setEnd(n, i + norm.length);
+        ranges.push(r);
+      }
+    }
+    CSS.highlights.set('settings-search', new Highlight(...ranges));
+    return () => { CSS.highlights.delete('settings-search'); };
+  }, [settingsQuery, settingsMatchKeys]);
   const [selectedModel, setSelectedModel] = useState('');
   const [verificationModel, setVerificationModel] = useState('');
   const [whisperModel, setWhisperModel] = useState('');

@@ -12,7 +12,7 @@ info:
     - Monitor system status and trigger cleanup operations
     - Manage cross-episode ad patterns with network and podcast scope
     - Submit corrections to improve ad detection accuracy
-  version: 2.22.1
+  version: 2.23.1
   contact:
     name: MinusPod
   license:
@@ -4694,14 +4694,16 @@ paths:
                   type: number
                 cueType:
                   type: string
-                  enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+                  enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro, content_transition]
                   default: ad_break_boundary
                   description: >-
                     Fixed cue type chosen from a dropdown (not freeform). The
                     type sets the consistent label fed to the LLM and the
                     matching role: ad_break_start/end snap that edge, ad_break_boundary
                     snaps both, show_intro/show_outro never snap or pair and only
-                    tell the model the sound is the show open/close, not an ad.
+                    tell the model the sound is the show open/close, not an ad, and
+                    content_transition likewise never snaps or pairs and hints the
+                    model that a segment transition (not necessarily an ad) is there.
                 scope:
                   type: string
                   enum: [podcast, network]
@@ -4744,7 +4746,7 @@ paths:
               properties:
                 cueType:
                   type: string
-                  enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+                  enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro, content_transition]
                   description: Change the cue type (also resets the derived label)
                 enabled:
                   type: boolean
@@ -5331,7 +5333,7 @@ components:
           description: Canonical phrase derived from cueType (shown to the LLM and UI)
         cueType:
           type: string
-          enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+          enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro, content_transition]
           default: ad_break_boundary
         sourceEpisodeId:
           type: string
@@ -5621,7 +5623,7 @@ components:
         cue_type:
           type: string
           nullable: true
-          enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro]
+          enum: [ad_break_boundary, ad_break_start, ad_break_end, show_intro, show_outro, content_transition]
         role:
           type: string
           nullable: true

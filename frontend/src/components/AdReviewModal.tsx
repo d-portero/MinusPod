@@ -7,6 +7,8 @@ import { getSponsors } from '../api/sponsors';
 import { SponsorInput, type SponsorOption } from './ad-editor/SponsorInput';
 import { Pin } from './ad-editor/Pin';
 import { usePeaks } from './ad-editor/usePeaks';
+import { usePeakSlice } from './ad-editor/usePeakSlice';
+import { useWaveformWindow } from './ad-editor/useWaveformWindow';
 import TextSelectionPanel from './ad-editor/TextSelectionPanel';
 import TransportBar from './ad-editor/TransportBar';
 import ZoomControl from './ad-editor/ZoomControl';
@@ -114,9 +116,9 @@ function AdReviewModal({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);   // waveform host
   const overlayRef = useRef<HTMLDivElement>(null);     // relative wrapper around waveform + pins
-  const scrollContainerRef = useRef<HTMLDivElement>(null); // overflow-x-auto wrapper
   const cursorRef = useRef<HTMLDivElement>(null);      // playhead, position-updated from RAF
-  const scrubberRef = useRef<HTMLDivElement>(null);    // full-episode play scrubber
+  const scrubberRef = useRef<HTMLDivElement>(null);    // full-episode play scrubber (seeks audio)
+  const windowScrubberRef = useRef<HTMLDivElement>(null); // full-episode pan scrubber (pans zoomed window)
   const audioRef = useRef<HTMLAudioElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const regionsRef = useRef<ReturnType<typeof RegionsPlugin.create> | null>(null);
@@ -149,8 +151,40 @@ function AdReviewModal({
     };
   }, [mode, episodeDuration, item]);
 
-  const [windowStart, setWindowStart] = useState(defaults.windowStart);
-  const [windowEnd, setWindowEnd] = useState(defaults.windowEnd);
+  // Whole-episode duration the windowed waveform spans. Falls back to the
+  // default cap when the episode length is unknown so the window math has a
+  // finite total to slice against.
+  const totalDuration = useMemo(() => {
+    const d = Math.max(0, episodeDuration ?? 0);
+    return d > 0 ? d : DEFAULT_MAX_WINDOW_SECONDS;
+  }, [episodeDuration]);
+
+  const ZOOM_MIN = 1;
+  // Review mode opens zoomed onto the ad and the user can zoom deep into
+  // boundary detail on long episodes, so allow the same deep zoom the cue
+  // editor uses.
+  const ZOOM_MAX = 500;
+
+  // Derive the opening view from the detection-derived defaults: center on
+  // the default window and pick a zoom that frames it. Create mode's default
+  // window is the whole episode -> ~1x; review mode is a tight window -> zoomed.
+  const initialCenter = (defaults.windowStart + defaults.windowEnd) / 2;
+  const initialZoom = Math.max(
+    1,
+    totalDuration / Math.max(0.001, defaults.windowEnd - defaults.windowStart),
+  );
+
+  // Playhead time mirrored into a ref so a zoom can recenter on the live
+  // cursor without re-running the RAF loop. Seeded at the initial center so a
+  // zoom BEFORE playback (currentTime still 0) recenters on the ad, not t=0.
+  const playheadRef = useRef(initialCenter);
+  const {
+    zoom, setZoom, zoomIn, zoomOut, windowStart, windowEnd, windowCenter,
+    setWindowCenter, reset: resetWindow,
+  } = useWaveformWindow(
+    totalDuration, initialCenter, playheadRef, ZOOM_MIN, ZOOM_MAX, initialZoom,
+  );
+
   const [adStart, setAdStart] = useState(defaults.adStart);
   const [adEnd, setAdEnd] = useState(defaults.adEnd);
   // String mirror of the timestamp inputs. Lets the user type partial
@@ -162,21 +196,17 @@ function AdReviewModal({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
-  // Zoom is a multiplier of "fit" -- 1 = fit-to-container, 2 = 2× zoomed in, etc.
-  const [zoom, setZoom] = useState(1);
-  const ZOOM_MIN = 1;
-  const ZOOM_MAX = 20;
-  // Bumped by resetView to force a clean wavesurfer rebuild (and re-fetch
-  // of peaks). Belt-and-suspenders so Reset always lands a known-good
-  // state regardless of which states actually changed.
+  // Bumped by resetView to force a clean re-fetch of peaks. Belt-and-suspenders
+  // so Reset always lands a known-good state.
   const [resetTick, setResetTick] = useState(0);
-  // Fetches peaks for the current window and exposes the resolution the
-  // server actually used. Re-fetches on window or resetTick change.
+  // Fetch the whole episode's peaks ONCE and slice the visible window out
+  // client-side (windowPeaks below). Re-fetching per window would null `peaks`
+  // on every zoom/pan tick, flashing the pins and waveform.
   const { peaks, peakResolutionMs, peaksError } = usePeaks(
     item.podcastSlug,
     item.episodeId,
-    windowStart,
-    windowEnd,
+    0,
+    totalDuration,
     resetTick,
   );
   const [playWhileDrag, setPlayWhileDrag] = useState<boolean>(loadPlayWhileDragging);
@@ -225,29 +255,10 @@ function AdReviewModal({
     effectiveAudioMode === 'original' || !processedAudioUrl
       ? `/api/v1/feeds/${item.podcastSlug}/episodes/${item.episodeId}/original.mp3`
       : processedAudioUrl;
-  // The user-requested window. May extend past the actual end of the file
-  // for post-roll ads -- ffmpeg silently truncates and returns fewer peaks.
-  const requestedWindowDuration = useMemo(
-    () => Math.max(0.001, windowEnd - windowStart),
-    [windowStart, windowEnd],
-  );
-  // The window we actually have peaks for. When peaks are loaded, derive
-  // duration from peak count × resolution so visual positioning matches
-  // the audio that exists. Pins / cursor / region all use this.
-  const windowDuration = useMemo(() => {
-    if (peaks && peaks.length > 0) {
-      return Math.max(0.001, (peaks.length * peakResolutionMs) / 1000);
-    }
-    return requestedWindowDuration;
-  }, [peaks, peakResolutionMs, requestedWindowDuration]);
-  // Effective end = start + actual covered duration. Used in the displayed
-  // time labels so the user sees the same window the pins / waveform are
-  // actually showing -- important for post-roll ads whose requested window
-  // extends past the file end.
-  const effectiveWindowEnd = useMemo(
-    () => windowStart + windowDuration,
-    [windowStart, windowDuration],
-  );
+  const windowDuration = Math.max(0.001, windowEnd - windowStart);
+
+  // Peaks for just the visible window (a slice of the full-episode peaks).
+  const windowPeaks = usePeakSlice(peaks, peakResolutionMs, windowStart, windowEnd);
 
   // ------------------------------------------------------------------
   // Create mode only: auto-populate text template from the transcript
@@ -274,7 +285,7 @@ function AdReviewModal({
   // Mount wavesurfer when peaks/window arrive. Region is decorative -- 
   // drag/resize disabled because the Pin components own that interaction.
   useEffect(() => {
-    if (!containerRef.current || !peaks) return;
+    if (!containerRef.current || !windowPeaks) return;
 
     wsRef.current?.destroy();
     wsRef.current = null;
@@ -282,7 +293,7 @@ function AdReviewModal({
     const regions = RegionsPlugin.create();
     const ws = WaveSurfer.create({
       container: containerRef.current,
-      peaks: [peaks],
+      peaks: [windowPeaks],
       duration: windowDuration,
       ...getThemeWaveformColors(),
       cursorColor: 'transparent', // we render our own playhead -- see <Cursor /> below
@@ -296,54 +307,6 @@ function AdReviewModal({
 
     regionsRef.current = regions;
     wsRef.current = ws;
-
-    // wavesurfer 7 mounts its scroll-container inside an *open shadow DOM*
-    // attached to containerRef. When minPxPerSec*duration > parent width
-    // it grows an overflow-x: auto scrollbar -- duplicate of our own outer
-    // wrapper. Walk the shadow tree and force every element with overflow
-    // styling to be visible. Use setProperty(important) because wavesurfer
-    // sets these as inline styles which a plain assignment can't override.
-    const stripInnerScroll = () => {
-      // Wavesurfer 7 mounts a div as containerRef's first child and
-      // attaches an open shadow root TO THAT DIV (not to containerRef
-      // itself). Walk through both layers.
-      const host = containerRef.current;
-      if (!host) return;
-      const wsHost = host.firstElementChild as HTMLElement | null;
-      if (wsHost) {
-        wsHost.style.setProperty('overflow', 'visible', 'important');
-      }
-      const shadow = wsHost?.shadowRoot ?? null;
-      const roots: (ShadowRoot | HTMLElement)[] = shadow ? [shadow, host] : [host];
-      for (const root of roots) {
-        root.querySelectorAll('*').forEach((el) => {
-          const e = el as HTMLElement;
-          if (e.style?.overflow || e.style?.overflowX || e.style?.overflowY) {
-            e.style.setProperty('overflow', 'visible', 'important');
-            e.style.setProperty('overflow-x', 'visible', 'important');
-            e.style.setProperty('overflow-y', 'visible', 'important');
-          }
-        });
-      }
-      // Belt-and-suspenders: also inject a !important rule into the
-      // shadow root so any post-render restyling is overridden too.
-      if (shadow && !shadow.querySelector('style[data-no-inner-scroll]')) {
-        const style = document.createElement('style');
-        style.setAttribute('data-no-inner-scroll', '1');
-        style.textContent = `
-          ::part(scroll), div { overflow: visible !important; overflow-x: visible !important; overflow-y: visible !important; }
-        `;
-        shadow.appendChild(style);
-      }
-    };
-    stripInnerScroll();
-    ws.on('redraw', stripInnerScroll);
-    ws.on('ready', stripInnerScroll);
-    // Backstop: a couple of deferred calls catch any post-init style
-    // applied after our initial pass (some wavesurfer versions style
-    // their wrapper asynchronously after the first render frame).
-    requestAnimationFrame(stripInnerScroll);
-    setTimeout(stripInnerScroll, 100);
 
     const region = regions.addRegion({
       start: Math.max(0, adStart - windowStart),
@@ -376,41 +339,7 @@ function AdReviewModal({
     };
     // Intentionally only re-mount on window/peaks change, not on bound moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peaks, windowDuration, windowStart]);
-
-  // Push zoom changes into wavesurfer AND resize the pin overlay so the
-  // pins stay anchored to the right moments when zoomed. The pin overlay's
-  // width must match the waveform's actual rendered width -- pins use
-  // `left: %` against the overlay's box.
-  useEffect(() => {
-    const ws = wsRef.current;
-    const sc = scrollContainerRef.current;
-    const overlay = overlayRef.current;
-    if (!ws || !sc || !overlay) return;
-    const fitPxPerSec = sc.clientWidth / Math.max(0.001, windowDuration);
-    const targetPxPerSec = fitPxPerSec * zoom;
-    const targetWidth = windowDuration * targetPxPerSec;
-    overlay.style.minWidth = `${targetWidth}px`;
-    try {
-      ws.zoom(targetPxPerSec);
-    } catch {
-      /* ws not ready */
-    }
-    // Kill the inner scrollbar wavesurfer (re)applies after zoom.
-    requestAnimationFrame(() => {
-      const host = containerRef.current;
-      const root = host?.shadowRoot ?? host;
-      if (!root) return;
-      root.querySelectorAll('*').forEach((el) => {
-        const e = el as HTMLElement;
-        if (e.style?.overflow || e.style?.overflowX || e.style?.overflowY) {
-          e.style.setProperty('overflow', 'visible', 'important');
-          e.style.setProperty('overflow-x', 'visible', 'important');
-          e.style.setProperty('overflow-y', 'visible', 'important');
-        }
-      });
-    });
-  }, [zoom, peaks, windowDuration]);
+  }, [windowPeaks, windowStart, windowDuration]);
 
   // Reflect ad-boundary state into the existing region without rebuilding ws.
   useEffect(() => {
@@ -444,6 +373,7 @@ function AdReviewModal({
       const cursor = cursorRef.current;
       if (audio && cursor) {
         const t = audio.currentTime;
+        playheadRef.current = t;
         const rel = (t - windowStart) / windowDuration;
         if (Number.isFinite(rel) && rel >= 0 && rel <= 1) {
           cursor.style.left = `${rel * 100}%`;
@@ -569,6 +499,30 @@ function AdReviewModal({
     el.addEventListener('pointercancel', onUp);
   };
 
+  // Full-episode pan scrubber: drag to pan the zoomed waveform window across
+  // the episode (mirrors CueMarkModal). Does NOT seek audio -- only moves the
+  // rendered window so the user can navigate while zoomed in.
+  const panToClientX = (clientX: number) => {
+    const el = windowScrubberRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    setWindowCenter(frac * totalDuration);
+  };
+  const onWindowScrubberPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    panToClientX(e.clientX);
+    const move = (ev: PointerEvent) => panToClientX(ev.clientX);
+    const end = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  };
+
   // ------------------------------------------------------------------
   // Pin drag → optional audio scrub. Plays a tiny preview at the pin's
   // current time so the user can hear what they're aligning to.
@@ -611,16 +565,18 @@ function AdReviewModal({
   };
 
   // ------------------------------------------------------------------
-  // Window expand / reset. Shrink is keyboard-only via `,`/`.`; the
-  // shrink helpers were only wired to the removed +/-1m buttons.
-  const expandBack = () => setWindowStart((s) => Math.max(0, s - WINDOW_STEP_SECONDS));
-  const expandForward = () => setWindowEnd((e) => e + WINDOW_STEP_SECONDS);
+  // Window pan / reset. In the window-width model the rendered view IS the
+  // window, so the `,`/`.` keys pan windowCenter rather than growing a fetch
+  // span. Span size is changed by zoom.
+  const panBack = () => setWindowCenter(windowCenter - WINDOW_STEP_SECONDS);
+  const panForward = () => setWindowCenter(windowCenter + WINDOW_STEP_SECONDS);
   const resetView = () => {
-    setWindowStart(defaults.windowStart);
-    setWindowEnd(defaults.windowEnd);
+    resetWindow(initialCenter);
+    // Anchor the zoom on initialCenter, not the playhead, so Reset lands on the
+    // detected ad rather than wherever the user last paused.
+    setZoom(initialZoom, initialCenter);
     setAdStart(defaults.adStart);
     setAdEnd(defaults.adEnd);
-    setZoom(1);
     // usePeaks clears + re-fetches on resetTick change; the bump is
     // sufficient to force a fresh fetch + waveform rebuild.
     setResetTick((n) => n + 1);
@@ -632,38 +588,20 @@ function AdReviewModal({
     }
   };
 
-  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, +(z * 1.5).toFixed(2)));
-  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, +(z / 1.5).toFixed(2)));
-
-  // Mouse-wheel zoom on the waveform: Ctrl/Shift wheel zooms,
-  // bare wheel still scrolls horizontally (browser default in overflow-x-auto).
-  // We intercept ALL wheel events on the scroll container so the user doesn't
-  // need a modifier key -- feels more natural for an audio-editing surface.
+  // Mouse-wheel zoom on the waveform, anchored on the time under the cursor.
+  // The rendered view IS the window, so there's no horizontal scroll to
+  // re-anchor -- setZoom recenters the window on the cursor time directly.
   const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    // Only act on vertical wheel (deltaY); leave horizontal wheel alone so
-    // trackpad horizontal panning still scrolls the waveform.
+    // Only act on vertical wheel (deltaY); leave horizontal wheel alone.
     if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
     e.preventDefault();
-    // Zoom around the cursor: capture the time at the cursor before, then
-    // restore the same time at the same cursor x after zoom by adjusting scroll.
-    const sc = scrollContainerRef.current;
-    if (!sc) return;
-    const rect = sc.getBoundingClientRect();
-    const cursorX = e.clientX - rect.left + sc.scrollLeft;
-    const fitPxPerSec = rect.width / Math.max(0.001, windowDuration);
-    const oldPxPerSec = fitPxPerSec * zoom;
-    const cursorTime = cursorX / Math.max(0.001, oldPxPerSec);
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const rect = overlay.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const cursorTime = windowStart + frac * windowDuration;
     const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +(zoom * factor).toFixed(3)));
-    setZoom(nextZoom);
-    // Re-anchor the cursor: schedule scroll adjustment after layout updates.
-    requestAnimationFrame(() => {
-      const sc2 = scrollContainerRef.current;
-      if (!sc2) return;
-      const newPxPerSec = fitPxPerSec * nextZoom;
-      const newCursorX = cursorTime * newPxPerSec;
-      sc2.scrollLeft = newCursorX - (e.clientX - rect.left);
-    });
+    setZoom(+(zoom * factor).toFixed(3), cursorTime);
   };
 
   // ------------------------------------------------------------------
@@ -688,32 +626,16 @@ function AdReviewModal({
     }
   }, [adEnd]);
 
-  // Scroll the wavesurfer viewport so a just-committed pin is visible.
-  // No-op at default zoom (the whole episode is visible). Only matters when
-  // the user has zoomed in and then types a time outside the current view.
+  // Recenter the rendered window so a just-committed pin is visible. No-op in
+  // effect at 1x where the window is the whole episode; matters when zoomed.
   const scrollPinIntoView = (time: number) => {
-    const sc = scrollContainerRef.current;
-    if (!sc || zoom <= 1) return;
-    const dur = Math.max(0.001, windowEnd - windowStart);
-    const targetPxPerSec = (sc.clientWidth / dur) * zoom;
-    const pinPx = (time - windowStart) * targetPxPerSec;
-    if (pinPx < sc.scrollLeft || pinPx > sc.scrollLeft + sc.clientWidth) {
-      sc.scrollLeft = Math.max(0, pinPx - sc.clientWidth / 2);
-    }
+    setWindowCenter(time);
   };
 
-  // If a just-committed pin lands outside the visible window (common when
-  // typing a far-away timestamp in review mode where the default window is
-  // ~6 minutes centered on the ad), grow the window to include it plus a
-  // small context margin. Peaks re-fetch + waveform re-render are wired to
-  // windowStart/windowEnd, so this lights up automatically.
+  // Recenter the window on a just-committed pin so it's visible, even when the
+  // typed time lands far outside the current zoomed view.
   const expandWindowToInclude = (time: number) => {
-    if (time >= windowStart && time <= windowEnd) return;
-    const maxAllowed = episodeDuration ?? Number.POSITIVE_INFINITY;
-    const newStart = Math.max(0, Math.min(windowStart, time - CONTEXT_SECONDS));
-    const newEnd = Math.min(maxAllowed, Math.max(windowEnd, time + CONTEXT_SECONDS));
-    setWindowStart(newStart);
-    setWindowEnd(newEnd);
+    setWindowCenter(time);
   };
 
   const commitStartInput = () => {
@@ -802,8 +724,8 @@ function AdReviewModal({
 
       if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
       if (e.key === ' ')      { e.preventDefault(); togglePlay(); return; }
-      if (e.key === ',')      { e.preventDefault(); expandBack(); return; }
-      if (e.key === '.')      { e.preventDefault(); expandForward(); return; }
+      if (e.key === ',')      { e.preventDefault(); panBack(); return; }
+      if (e.key === '.')      { e.preventDefault(); panForward(); return; }
       if (e.key === 'c' || e.key === 'C') { e.preventDefault(); if (!isBusy && !boundaryError) handleConfirm(); return; }
       if (e.key === 'r' || e.key === 'R') { e.preventDefault(); if (!isBusy) handleReject(); return; }
       if (e.key === 's' || e.key === 'S') { e.preventDefault(); if (!isBusy) onSkip(); return; }
@@ -940,7 +862,7 @@ function AdReviewModal({
             numbers floating in the chrome. */}
         <div className={`px-4 sm:px-6 pt-3 sm:pt-4 flex items-center justify-between gap-3 flex-wrap text-xs text-muted-foreground tabular-nums ${textModeActive ? 'hidden' : ''}`}>
           <span>
-            Window: {formatTime(windowStart)} – {formatTime(effectiveWindowEnd)}
+            Window: {formatTime(windowStart)} – {formatTime(windowEnd)}
           </span>
           <div className="flex items-center gap-3 flex-wrap">
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -960,6 +882,44 @@ function AdReviewModal({
               title="Reset waveform window + ad bounds to defaults">↻ Reset</button>
           </div>
         </div>
+
+        {/* Full-episode pan scrubber: shows where the zoomed window sits and
+            lets the user pan across the whole episode (only useful when
+            zoomed). Pans the rendered window -- it does NOT seek audio. */}
+        {!textModeActive && zoom > 1 && totalDuration > 0 && (
+          <div className="px-4 sm:px-6 pt-2">
+            <div
+              ref={windowScrubberRef}
+              role="slider"
+              aria-label="Waveform window position"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(totalDuration)}
+              aria-valuenow={Math.round(windowCenter)}
+              tabIndex={0}
+              onPointerDown={onWindowScrubberPointerDown}
+              className="relative h-3 rounded-full bg-background border border-border cursor-pointer touch-none focus:outline-hidden focus:ring-2 focus:ring-ring"
+            >
+              <div
+                className="absolute inset-y-0 bg-primary/30 rounded-full pointer-events-none"
+                style={{
+                  left: `${(windowStart / totalDuration) * 100}%`,
+                  width: `${Math.max(1, ((windowEnd - windowStart) / totalDuration) * 100)}%`,
+                }}
+                aria-hidden
+              />
+              <div
+                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-amber-500 pointer-events-none"
+                style={{ left: `${(currentTime / totalDuration) * 100}%` }}
+                aria-hidden
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+              <span>{formatTime(windowStart)}</span>
+              <span>showing {formatTime(windowEnd - windowStart)}</span>
+              <span>{formatTime(windowEnd)}</span>
+            </div>
+          </div>
+        )}
 
         {mode === 'create' && (
           <div className="px-4 sm:px-6 pt-3">
@@ -1020,19 +980,17 @@ function AdReviewModal({
               <p className="text-sm text-muted-foreground">Loading waveform…</p>
             ) : (
               <div
-                ref={scrollContainerRef}
                 onWheel={onWheel}
-                className="overflow-x-auto"
+                className="overflow-hidden"
               >
-                <div className="relative min-w-full" ref={overlayRef}>
+                <div className="relative w-full" ref={overlayRef}>
                   {/* Header strip -- gives the pinheads a place to live INSIDE
-                      the overlay's box (so they aren't clipped by the
-                      enclosing overflow-x-auto scroll container). */}
+                      the overlay's box (so they aren't clipped). */}
                   <div className="h-9" />
-                  {/* Pins live in the same horizontal coordinate system as
-                      the waveform host (overlayRef). When zoom > 1, wavesurfer
-                      widens its canvas -- the relative wrapper grows with it,
-                      so pin `left: %` keeps tracking the right time. */}
+                  {/* Pins live in the same horizontal coordinate system as the
+                      waveform host (overlayRef), which is always exactly the
+                      visible window width, so pin `left: %` of windowDuration
+                      tracks the right time at any zoom. */}
                   <Pin
                     kind="start"
                     boundary={adStart}
@@ -1123,7 +1081,7 @@ function AdReviewModal({
             min={ZOOM_MIN}
             max={ZOOM_MAX}
             step={0.1}
-            onChange={setZoom}
+            onChange={(z) => setZoom(z)}
             onZoomIn={zoomIn}
             onZoomOut={zoomOut}
           />

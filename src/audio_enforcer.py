@@ -14,6 +14,7 @@ from config import (
     AUDIO_CUE_ROLE_NON_AD,
     AUDIO_CUE_SOURCE_SPECTRAL,
     AUDIO_CUE_SOURCE_TEMPLATE,
+    AUDIO_CUE_TYPE_CONTENT_TRANSITION,
     AUDIO_CUE_TYPE_SHOW_INTRO,
     AUDIO_CUE_TYPE_SHOW_OUTRO,
 )
@@ -102,6 +103,7 @@ class AudioEnforcer:
         lines = []
         has_ad_cue = False
         has_non_ad_cue = False
+        has_content_transition_cue = False
 
         for signal in audio_analysis.signals:
             # Skip low-confidence signals
@@ -133,7 +135,12 @@ class AudioEnforcer:
                 label = details.get('label')
                 source = details.get('source', AUDIO_CUE_SOURCE_SPECTRAL)
                 role = details.get('role', AUDIO_CUE_ROLE_DEFAULT)
-                if role == AUDIO_CUE_ROLE_NON_AD:
+                cue_type = details.get('cue_type')
+                if cue_type == AUDIO_CUE_TYPE_CONTENT_TRANSITION:
+                    descriptor = f'"{label}" transition' if label else 'Content transition marker'
+                    suffix = "a recurring content/segment transition, NOT necessarily an ad boundary"
+                    has_content_transition_cue = True
+                elif role == AUDIO_CUE_ROLE_NON_AD:
                     descriptor = f'"{label}" marker' if label else 'Show intro/outro marker'
                     suffix = "marks the show's open/close, NOT an ad boundary"
                     has_non_ad_cue = True
@@ -188,5 +195,14 @@ class AudioEnforcer:
             "at it.\n"
         ) if has_non_ad_cue else ""
 
+        # A content-transition cue marks a segment/topic change that may or may
+        # not sit next to an ad; it is a hint, never an ad boundary on its own.
+        content_transition_guidance = (
+            "\nCONTENT TRANSITION MARKERS: a marker above is a recurring sound this show plays "
+            "at content/segment transitions, which may or may not be next to an ad. Use it only "
+            "as a hint that the topic changes there; do NOT treat it as an ad boundary on its own.\n"
+        ) if has_content_transition_cue else ""
+
         return (header + "\n".join(lines) + "\n"
-                + cue_guidance + non_ad_guidance + positional_guidance)
+                + cue_guidance + non_ad_guidance + content_transition_guidance
+                + positional_guidance)

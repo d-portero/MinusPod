@@ -7,7 +7,8 @@ export type CueTemplateType =
   | 'ad_break_start'
   | 'ad_break_end'
   | 'show_intro'
-  | 'show_outro';
+  | 'show_outro'
+  | 'content_transition';
 
 // Fixed cue-type vocabulary for the capture dropdown. The label here is the
 // human option text; the server keeps its own canonical phrase for the LLM.
@@ -17,6 +18,7 @@ export const CUE_TYPE_OPTIONS: { value: CueTemplateType; label: string }[] = [
   { value: 'ad_break_end', label: 'Ad-break end' },
   { value: 'show_intro', label: 'Show intro (not an ad)' },
   { value: 'show_outro', label: 'Show outro (not an ad)' },
+  { value: 'content_transition', label: 'Content transition (not an ad)' },
 ];
 
 export function cueTypeLabel(cueType: CueTemplateType): string {

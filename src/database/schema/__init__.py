@@ -155,7 +155,7 @@ class SchemaMixin:
                 pcm_sample_rate INTEGER,
                 scope TEXT NOT NULL DEFAULT 'podcast' CHECK(scope IN ('network', 'podcast')),
                 network_id TEXT,
-                cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary' CHECK(cue_type IN ('ad_break_boundary', 'ad_break_start', 'ad_break_end', 'show_intro', 'show_outro')),
+                cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary',
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 created_by TEXT DEFAULT 'user',
@@ -1293,7 +1293,7 @@ class SchemaMixin:
                     pcm_sample_rate INTEGER,
                     scope TEXT NOT NULL DEFAULT 'podcast' CHECK(scope IN ('network', 'podcast')),
                     network_id TEXT,
-                    cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary' CHECK(cue_type IN ('ad_break_boundary', 'ad_break_start', 'ad_break_end', 'show_intro', 'show_outro')),
+                    cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary',
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                     created_by TEXT DEFAULT 'user',
@@ -1317,6 +1317,65 @@ class SchemaMixin:
                     conn, 'audio_cue_templates', 'cue_type',
                     "TEXT NOT NULL DEFAULT 'ad_break_boundary'", cols,
                 )
+            # One-time rebuild for DBs created fresh while cue_type still carried a
+            # CHECK constraint. SQLite can't ALTER a CHECK, so those DBs would
+            # reject any cue_type added later (#350 content_transition). Drop the
+            # CHECK by rebuilding; config.AUDIO_CUE_TYPES + the API validate the
+            # value, matching the ALTER-path DBs that never had it. Nothing
+            # FK-references this table, so the drop/rename is safe. Idempotent:
+            # runs only while the CHECK is still present.
+            cue_sql_row = conn.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='table' AND name='audio_cue_templates'"
+            ).fetchone()
+            if cue_sql_row and 'CHECK(cue_type' in (cue_sql_row[0] or ''):
+                cue_cols = (
+                    "id, podcast_id, label, source_episode_id, source_offset_s, "
+                    "duration_s, sample_rate, n_coeffs, mfcc_blob, pcm_blob, "
+                    "pcm_sample_rate, scope, network_id, cue_type, enabled, "
+                    "created_at, created_by"
+                )
+                before = conn.execute(
+                    "SELECT COUNT(*) FROM audio_cue_templates").fetchone()[0]
+                conn.execute("""
+                    CREATE TABLE audio_cue_templates_rebuild (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        podcast_id INTEGER NOT NULL,
+                        label TEXT NOT NULL,
+                        source_episode_id TEXT,
+                        source_offset_s REAL NOT NULL,
+                        duration_s REAL NOT NULL,
+                        sample_rate INTEGER NOT NULL,
+                        n_coeffs INTEGER NOT NULL,
+                        mfcc_blob BLOB NOT NULL,
+                        pcm_blob BLOB,
+                        pcm_sample_rate INTEGER,
+                        scope TEXT NOT NULL DEFAULT 'podcast' CHECK(scope IN ('network', 'podcast')),
+                        network_id TEXT,
+                        cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary',
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                        created_by TEXT DEFAULT 'user',
+                        FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
+                    )
+                """)
+                conn.execute(
+                    f"INSERT INTO audio_cue_templates_rebuild ({cue_cols}) "
+                    f"SELECT {cue_cols} FROM audio_cue_templates"
+                )
+                after = conn.execute(
+                    "SELECT COUNT(*) FROM audio_cue_templates_rebuild").fetchone()[0]
+                if after != before:
+                    conn.execute("DROP TABLE audio_cue_templates_rebuild")
+                    raise RuntimeError(
+                        f"cue_type CHECK rebuild row mismatch: {before} != {after}")
+                conn.execute("DROP TABLE audio_cue_templates")
+                conn.execute(
+                    "ALTER TABLE audio_cue_templates_rebuild "
+                    "RENAME TO audio_cue_templates")
+                logger.info(
+                    "Migration: dropped legacy cue_type CHECK on "
+                    "audio_cue_templates (%d rows preserved)", before)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_cue_templates_feed "
                 "ON audio_cue_templates(podcast_id, enabled)"
