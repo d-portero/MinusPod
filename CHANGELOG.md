@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.0] - 2026-06-26
+
+### Added
+
+- A "Content transition" cue template type. Some shows reuse one jingle across non-ad transitions (intro, exit from an ad, segment changes, outro). Marking that jingle as an ad-break start or end would snap an ad boundary onto every occurrence, including the ones that are not ads. The new type instead tells the model a transition happens there without claiming an ad, so it stays a hint and never forces a cut. Pick it from the cue type dropdown (issue #350).
+
+### Changed
+
+- Zooming the cue-marking waveform now keeps the playhead centered (Audacity-style) instead of holding the old scroll position. The ad editor's waveform got the same change, and both now share one window/zoom implementation, so the two editors behave the same and there is one place to maintain (issue #350).
+
 ## [2.22.1] - 2026-06-25
 
 ### Fixed
