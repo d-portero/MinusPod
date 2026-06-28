@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Cue templates export as a lossless FLAC instead of an uncompressed WAV, which roughly halves the shared file. Import accepts both the new FLAC packs and older WAV packs, and still recomputes the MFCC from the audio rather than trusting a shared feature blob.
 
+### Fixed
+
+- The transcription model no longer invents sponsor names such as "Wegovy, Ozempic, Mounjaro" in silent gaps. Those names were seeded into the vocabulary hint given to Whisper, and on quiet audio Whisper echoed the hint back into the transcript verbatim; the ad detector then cut those gaps as ad breaks on shows that never ran the ad. The drug names and other bare common-English words (calm, indeed, audible) are no longer seeded, so Whisper is not primed to emit them and the scrubber no longer deletes real speech that uses those words. The hint and the prompt-leakage scrubber are now built from one shared list so they cannot drift, and the scrubber removes an echoed run of sponsor names at any length while leaving a genuine sponsor mention (one with real speech around the brand) intact.
+
 ## [2.26.0] - 2026-06-27
 
 ### Changed
