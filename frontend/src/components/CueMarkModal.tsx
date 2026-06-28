@@ -36,7 +36,7 @@ const DEFAULT_MIN_REGION_SECONDS = 0.2;
 const DEFAULT_MAX_REGION_SECONDS = 10.0;
 const DEFAULT_MAX_INTRO_SECONDS = 60.0;
 const DEFAULT_MAX_OUTRO_SECONDS = 60.0;
-const SCAN_FAILED_MESSAGE = 'Recurring-sound scan failed.';
+const SCAN_FAILED_MESSAGE = 'Audio-cue scan failed.';
 const ZOOM_MIN = 1;
 // Cues are short (often <1s) and episodes can be hours long, so the
 // fit-to-modal scale leaves them as a single pixel. Allow deep zoom.
@@ -136,8 +136,8 @@ function CueMarkModal({
   const [weakWarning, setWeakWarning] = useState<string | null>(null);
   const weakWarnedForRef = useRef<string | null>(null);
   const [previewMatches, setPreviewMatches] = useState<CueTemplateMatch[] | null>(null);
-  // Recurring-sound candidates (on-demand fingerprint scan). Raw loud spots were too noisy and
-  // the scan is slow, so it runs only when the user asks for it.
+  // Audio-cue candidates (on-demand scan: fingerprint recurrence + loud spots).
+  // The scan is slow, so it runs only when the user asks for it.
   const [candidates, setCandidates] = useState<CueCandidate[] | null>(null);
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [candidatesError, setCandidatesError] = useState<string | null>(null);
@@ -715,7 +715,7 @@ function CueMarkModal({
           </p>
         )}
 
-        {/* Find recurring sounds (on-demand -- the scan decodes the episode). */}
+        {/* Find audio cues (on-demand -- the scan decodes the episode). */}
         <div className="flex flex-wrap items-center gap-2 mt-2">
           <button
             type="button"
@@ -724,8 +724,8 @@ function CueMarkModal({
             disabled={candidatesLoading}
           >
             {candidatesLoading
-              ? 'Finding cue candidates...'
-              : candidatesError ? 'Try again' : 'Find cue candidates'}
+              ? 'Finding audio cues...'
+              : candidatesError ? 'Try again' : 'Find audio cues'}
           </button>
           {candidatesError && !candidatesLoading && (
             <span className="text-xs text-destructive">{candidatesError}</span>
@@ -733,8 +733,8 @@ function CueMarkModal({
           {candidates !== null && !candidatesLoading && !candidatesError && (
             <span className="text-xs text-muted-foreground">
               {candidates.length === 0
-                ? 'No cue candidates found.'
-                : `${candidates.length} cue candidate${candidates.length === 1 ? '' : 's'} (markers) - tap one to jump.`}
+                ? 'No audio cues found.'
+                : `${candidates.length} audio cue${candidates.length === 1 ? '' : 's'} (markers) - tap one to jump.`}
             </span>
           )}
         </div>

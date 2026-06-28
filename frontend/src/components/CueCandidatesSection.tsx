@@ -152,14 +152,14 @@ function CueCandidatesSection({
 
   return (
     <CollapsibleSection
-      title="Cue Candidates"
-      subtitle="Find a recurring sound to make a cue template"
+      title="Audio Cues"
+      subtitle="Find an audio cue to make a cue template"
       defaultOpen={false}
       storageKey={`episode-cue-candidates-${episodeId}`}
     >
       <p className="text-sm text-muted-foreground mb-3">
-        Scan the audio for cue candidates: sounds that repeat across the episode,
-        plus one-off intros, outros, and bumpers.
+        Scan the episode for audio cues: sounds that repeat across it, plus
+        one-off intros, outros, and bumpers.
       </p>
 
       {!scanned && (
@@ -169,7 +169,7 @@ function CueCandidatesSection({
           title={hasOriginalAudio ? '' : 'Original audio not retained for this episode'}
           className={makeBtn}
         >
-          Find cue candidates
+          Find audio cues
         </button>
       )}
 
@@ -185,7 +185,7 @@ function CueCandidatesSection({
         </div>
       )}
       {noneFound && (
-        <p className="text-sm text-muted-foreground">No cue candidates found.</p>
+        <p className="text-sm text-muted-foreground">No audio cues found.</p>
       )}
 
       {candidates.length > 0 && (
