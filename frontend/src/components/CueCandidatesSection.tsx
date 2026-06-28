@@ -3,7 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import CollapsibleSection from './CollapsibleSection';
 import LoadingSpinner from './LoadingSpinner';
 import CueMarkModal from './CueMarkModal';
-import { getCueCandidates, type CueCandidate } from '../api/cueTemplates';
+import {
+  getCueCandidates, cueCandidateLabel, captureMaxForType,
+  type CueCandidate, type CueTemplateType,
+} from '../api/cueTemplates';
 import { getSettings } from '../api/settings';
 
 interface CueCandidatesSectionProps {
@@ -30,7 +33,9 @@ function CueCandidatesSection({
 }: CueCandidatesSectionProps) {
   const queryClient = useQueryClient();
   const [scanned, setScanned] = useState(false);
-  const [seed, setSeed] = useState<{ start: number; end: number } | null>(null);
+  const [seed, setSeed] = useState<
+    { start: number; end: number; cueType?: CueTemplateType } | null
+  >(null);
 
   // Inline preview: one shared <audio> plays just the candidate's [start, end]
   // span so a candidate can be heard without opening the capture modal.
@@ -137,9 +142,17 @@ function CueCandidatesSection({
     if (previewStopRef.current) previewStopRef.current();
   }, []);
 
-  const makeTemplate = (start: number, end: number) => {
+  const makeTemplate = (c: CueCandidate) => {
     stopPreview();
-    setSeed({ start, end: Math.min(end, start + captureMaxSeconds) });
+    // Seed the capture type from the positional hint and clamp to that type's
+    // ceiling -- an intro/outro candidate may run up to 60s, not the 10s
+    // ad-break default.
+    const cueType = c.suggestedType ?? undefined;
+    const maxLen = captureMaxForType(
+      cueType ?? 'ad_break_boundary',
+      captureMaxSeconds, captureMaxIntroSeconds, captureMaxOutroSeconds,
+    );
+    setSeed({ start: c.start, end: Math.min(c.end, c.start + maxLen), cueType });
   };
 
   return (
@@ -150,8 +163,8 @@ function CueCandidatesSection({
       storageKey={`episode-cue-candidates-${episodeId}`}
     >
       <p className="text-sm text-muted-foreground mb-3">
-        Scan the audio for sounds that repeat across the episode -- the kind worth
-        templating. One-off sounds are skipped.
+        Scan the audio for cue candidates: sounds that repeat across the episode,
+        plus one-off intros, outros, and bumpers.
       </p>
 
       {!scanned && (
@@ -177,7 +190,7 @@ function CueCandidatesSection({
         </div>
       )}
       {noneFound && (
-        <p className="text-sm text-muted-foreground">No recurring sounds found.</p>
+        <p className="text-sm text-muted-foreground">No cue candidates found.</p>
       )}
 
       {candidates.length > 0 && (
@@ -212,12 +225,16 @@ function CueCandidatesSection({
                     <span className="font-mono text-sm text-foreground">
                       {formatTime(c.start)} - {formatTime(c.end)}
                     </span>
-                    <span className="px-1.5 py-0.5 text-xs rounded font-medium bg-blue-500/20 text-blue-600 dark:text-blue-400">
-                      Repeats {c.count}x
+                    <span className={`px-1.5 py-0.5 text-xs rounded font-medium ${
+                      c.kind === 'one_off'
+                        ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                        : 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                    }`}>
+                      {cueCandidateLabel(c)}
                     </span>
                   </div>
                   <button
-                    onClick={() => makeTemplate(c.start, c.end)}
+                    onClick={() => makeTemplate(c)}
                     disabled={!hasOriginalAudio}
                     title={hasOriginalAudio ? 'Open the capture tool to make a template'
                       : 'Original audio not retained for this episode'}
@@ -246,6 +263,7 @@ function CueCandidatesSection({
           episodeDuration={episodeDuration}
           initialStart={seed.start}
           initialEnd={seed.end}
+          initialCueType={seed.cueType}
           captureMinSeconds={captureMinSeconds}
           captureMaxSeconds={captureMaxSeconds}
           captureMaxIntroSeconds={captureMaxIntroSeconds}

@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.0] - 2026-06-28
+
+### Added
+
+- The cue candidate scan now surfaces one-off intros, outros, and bumpers, not just sounds that repeat across an episode. It combines the recurrence scan with a loud-spot pass and tags each candidate with a positional cue-type hint (intro near the start, outro near the end) that the capture tool preselects. Candidate length now reaches the longest per-type ceiling (60 seconds for intro and outro), so a long stinger is captured in full instead of being clipped to the 10-second ad-break limit.
+
+### Changed
+
+- Cue templates export as a lossless FLAC instead of an uncompressed WAV, which roughly halves the shared file. Import accepts both the new FLAC packs and older WAV packs, and still recomputes the MFCC from the audio rather than trusting a shared feature blob.
+
 ## [2.26.0] - 2026-06-27
 
 ### Changed

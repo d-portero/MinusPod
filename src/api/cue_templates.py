@@ -27,10 +27,12 @@ from api import (
 from audio_analysis.cue_features import (
     SAMPLE_RATE_HZ, N_COEFFS, compute_mfcc, decode_pcm_window,
     serialize_mfcc, pcm_to_int16_bytes, int16_bytes_to_pcm,
+    pcm_to_flac, flac_to_wav,
 )
 from audio_analysis.cue_template_matcher import (
     AudioCueTemplateMatcher, DEFAULT_MATCH_SCORE,
 )
+from audio_analysis.cue_candidates import merge_cue_candidates
 from audio_analysis.cue_detector import AudioCueDetector
 from audio_analysis.detected_cues import build_detected_cues
 from audio_fingerprinter import AudioFingerprinter
@@ -53,14 +55,17 @@ MAX_LOUD_SPOTS = 200
 
 logger = logging.getLogger('podcast.api.cue_templates')
 
-# Template export/import envelope schema version. Bumped only on a breaking
-# change to the zip layout or manifest fields; for now import just checks the
-# field is present and parses (no migration / gating).
-CUE_TEMPLATE_SCHEMA_VERSION = 1
-# Hard cap on the decompressed WAV pulled from an imported zip. A 4 s 16 kHz
-# mono int16 cue is ~128 KB; 5 MB is generous headroom and a zip-bomb guard on
-# top of the app-wide 10 MB request limit.
+# Template export/import envelope schema version. v2 stores the cue audio as
+# FLAC (cue.flac, lossless and ~half the size); v1 stored uncompressed WAV
+# (cue.wav). Import accepts both so older packs keep working.
+CUE_TEMPLATE_SCHEMA_VERSION = 2
+# Hard cap on the audio entry pulled from an imported zip (WAV or FLAC). A 4 s
+# 16 kHz mono int16 cue is ~128 KB and its FLAC roughly half that; 5 MB is
+# generous headroom and a zip-bomb guard on top of the app-wide 10 MB limit.
 MAX_IMPORT_WAV_BYTES = 5 * 1024 * 1024
+# Bound the audio decoded from an imported FLAC so a highly compressible (e.g.
+# silent) FLAC cannot expand to an unbounded WAV. Far longer than any real cue.
+MAX_IMPORT_CUE_SECONDS = 600
 
 
 def _resolve_original_audio(db, storage, slug, episode_id):
@@ -436,7 +441,7 @@ def preview_cue_template(slug, episode_id):
 @api.route('/cue-templates/<int:template_id>/export', methods=['GET'])
 @log_request
 def export_cue_template(template_id):
-    """Export a template as a zip: a lossless WAV of the captured cue plus a
+    """Export a template as a zip: a lossless FLAC of the captured cue plus a
     JSON manifest. Round-trips between a user's own or trusted installs.
     """
     db = get_database()
@@ -451,12 +456,10 @@ def export_cue_template(template_id):
         )
     sample_rate = int(row.get('pcm_sample_rate') or SAMPLE_RATE_HZ)
 
-    wav_buf = io.BytesIO()
-    with wave.open(wav_buf, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(bytes(pcm_blob))
+    try:
+        flac_bytes = pcm_to_flac(pcm_blob, sample_rate)
+    except RuntimeError as e:
+        return error_response(f'could not encode cue audio: {e}', 500)
 
     manifest = {
         'schemaVersion': CUE_TEMPLATE_SCHEMA_VERSION,
@@ -467,10 +470,11 @@ def export_cue_template(template_id):
         'sampleRate': sample_rate,
         'nCoeffs': row['n_coeffs'],
         'sourceOffsetS': row['source_offset_s'],
+        'audioFile': 'cue.flac',
     }
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as z:
-        z.writestr('cue.wav', wav_buf.getvalue())
+        z.writestr('cue.flac', flac_bytes)
         z.writestr('template.json', json.dumps(manifest, indent=2))
     zip_buf.seek(0)
 
@@ -486,10 +490,11 @@ def export_cue_template(template_id):
 @api.route('/feeds/<slug>/cue-templates/import', methods=['POST'])
 @log_request
 def import_cue_template(slug):
-    """Import a template zip (WAV + manifest) into a feed.
+    """Import a template zip (FLAC or WAV audio + manifest) into a feed.
 
-    The MFCC is recomputed from the WAV here -- a foreign MFCC blob is never
-    trusted. Imports land as podcast scope; network scope is install-specific
+    The MFCC is recomputed from the decoded audio here -- a foreign MFCC blob is
+    never trusted. v2 packs carry cue.flac; v1 packs carry cue.wav; both are
+    accepted. Imports land as podcast scope; network scope is install-specific
     and is promoted explicitly after import. Sample-rate / channel mismatches
     are hard-rejected (no resampling).
     """
@@ -504,9 +509,13 @@ def import_cue_template(slug):
 
     try:
         with zipfile.ZipFile(upload.stream) as z:
-            names = z.namelist()
-            if 'template.json' not in names or 'cue.wav' not in names:
-                return error_response('zip must contain template.json and cue.wav', 400)
+            names = set(z.namelist())
+            if 'template.json' not in names:
+                return error_response('zip must contain template.json', 400)
+            audio_name = ('cue.flac' if 'cue.flac' in names
+                          else 'cue.wav' if 'cue.wav' in names else None)
+            if audio_name is None:
+                return error_response('zip must contain cue.flac or cue.wav', 400)
             # Stream both entries with a hard cap, reading at most one byte past
             # the limit so a zip bomb cannot decompress beyond MAX_IMPORT_WAV_BYTES
             # regardless of what the central directory claims as the size.
@@ -515,31 +524,42 @@ def import_cue_template(slug):
             if len(manifest_bytes) > MAX_IMPORT_WAV_BYTES:
                 return error_response('template.json is too large', 400)
             manifest = json.loads(manifest_bytes.decode('utf-8'))
-            with z.open('cue.wav') as wf:
-                wav_bytes = wf.read(MAX_IMPORT_WAV_BYTES + 1)
-            if len(wav_bytes) > MAX_IMPORT_WAV_BYTES:
-                return error_response('cue.wav is too large', 400)
+            with z.open(audio_name) as af:
+                audio_bytes = af.read(MAX_IMPORT_WAV_BYTES + 1)
+            if len(audio_bytes) > MAX_IMPORT_WAV_BYTES:
+                return error_response(f'{audio_name} is too large', 400)
     except (zipfile.BadZipFile, KeyError, UnicodeDecodeError, json.JSONDecodeError) as e:
         return error_response(f'could not read template zip: {e}', 400)
 
     if 'schemaVersion' not in manifest:
         return error_response('manifest is missing schemaVersion', 400)
 
+    # Normalize to a 16-bit PCM WAV, then run the same validation for both
+    # formats. FLAC is decoded preserving its source rate/channels so a mismatch
+    # still fails the checks below rather than being silently resampled.
+    if audio_name == 'cue.flac':
+        try:
+            wav_bytes = flac_to_wav(audio_bytes, MAX_IMPORT_CUE_SECONDS)
+        except RuntimeError as e:
+            return error_response(f'could not decode cue.flac: {e}', 400)
+    else:
+        wav_bytes = audio_bytes
+
     try:
         with wave.open(io.BytesIO(wav_bytes), 'rb') as wf:
             if wf.getnchannels() != 1:
                 return error_response(
-                    f'cue.wav must be mono (1 channel), got {wf.getnchannels()}', 400)
+                    f'cue audio must be mono (1 channel), got {wf.getnchannels()}', 400)
             if wf.getsampwidth() != 2:
                 return error_response(
-                    f'cue.wav must be 16-bit PCM (2 bytes/sample), got {wf.getsampwidth()}', 400)
+                    f'cue audio must be 16-bit PCM (2 bytes/sample), got {wf.getsampwidth()}', 400)
             sr = wf.getframerate()
             if sr != SAMPLE_RATE_HZ:
                 return error_response(
-                    f'cue.wav sample rate must be {SAMPLE_RATE_HZ}, got {sr}', 400)
+                    f'cue audio sample rate must be {SAMPLE_RATE_HZ}, got {sr}', 400)
             frames = wf.readframes(wf.getnframes())
     except wave.Error as e:
-        return error_response(f'cue.wav is not a valid WAV file: {e}', 400)
+        return error_response(f'cue audio is not a valid WAV file: {e}', 400)
 
     pcm = int16_bytes_to_pcm(frames)
     mfcc = compute_mfcc(pcm)
@@ -671,20 +691,29 @@ def episode_detected_cues(slug, episode_id):
     })
 
 
-def _run_cue_candidate_scan(podcast_id, episode_id, audio_path, similarity, min_count):
-    """Background worker: find recurring sounds via fingerprint self-repeat, persist.
+def _run_cue_candidate_scan(podcast_id, episode_id, audio_path, similarity,
+                            min_count, episode_duration):
+    """Background worker: find cue-template candidates, then persist them.
 
-    Generates one full-file Chromaprint fingerprint and surfaces the windows
-    that recur at least ``min_count`` times. Loudness-independent, so it catches
-    level-matched ad-break stings the old loudness-gated MFCC pass missed. Runs
-    off the request thread because fpcalc on a long show can exceed the
-    reverse-proxy timeout. Uses its own thread-local DB connection (the Database
-    singleton hands each thread its own).
+    Combines two passes: the fingerprint self-repeat scan (recurring sounds,
+    loudness-independent) and the loud-spot energy scan (one-off intros / outros
+    / bumpers the recurrence scan cannot see). Runs off the request thread
+    because decoding a long show can exceed the reverse-proxy timeout. Uses its
+    own thread-local DB connection (the Database singleton hands each thread its
+    own).
     """
     db = get_database()
     try:
-        candidates = AudioFingerprinter().discover_recurring_spots(
+        recurring = AudioFingerprinter().discover_recurring_spots(
             audio_path, similarity=similarity, min_count=min_count)
+        try:
+            loud_spots = _scan_loud_spots(db, audio_path)
+        except Exception:
+            logger.exception(
+                'loud-spot pass failed for %s/%s; using recurrence only',
+                podcast_id, episode_id)
+            loud_spots = []
+        candidates = merge_cue_candidates(recurring, loud_spots, episode_duration)
         db.save_cue_candidate_scan_result(podcast_id, episode_id, candidates)
     except Exception as e:
         logger.exception('cue candidate scan failed for %s/%s', podcast_id, episode_id)
@@ -694,14 +723,15 @@ def _run_cue_candidate_scan(podcast_id, episode_id, audio_path, similarity, min_
 @api.route('/feeds/<slug>/episodes/<episode_id>/cue-candidates', methods=['GET'])
 @log_request
 def episode_cue_candidates(slug, episode_id):
-    """Find RECURRING sounds in an episode as cue-template candidates (on-demand).
+    """Find cue-template candidates in an episode (on-demand).
 
-    Fingerprints the whole episode and returns the windows that recur across it
-    (a real cue does; a one-off laugh or music hit does not). Loudness-
-    independent, so it catches level-matched stings. fpcalc on a long show can
-    exceed the proxy timeout, so it runs in a background thread and this endpoint
-    returns a status the UI polls: 'scanning' (in progress), 'ready' (candidates
-    attached), or 'error'. Pass ?rescan=1 to force a fresh scan.
+    Combines recurring sounds (fingerprint self-repeat, loudness-independent)
+    with one-off loud spots (intros / outros / bumpers that play once and never
+    recur), so candidates cover all cue types, not just repeated sounds. Each is
+    tagged with a kind and a positional cue-type hint. Decoding a long show can
+    exceed the proxy timeout, so the work runs in a background thread and this
+    endpoint returns a status the UI polls: 'scanning', 'ready', or 'error'.
+    Pass ?rescan=1 to force a fresh scan.
     """
     if not is_valid_episode_id(episode_id):
         abort(400)
@@ -742,9 +772,12 @@ def episode_cue_candidates(slug, episode_id):
         'audio_cue_recurrence_similarity', AUDIO_CUE_RECURRENCE_SIMILARITY)
     min_count = int(db.get_setting_float(
         'audio_cue_recurrence_min_count', AUDIO_CUE_RECURRENCE_MIN_COUNT))
+    episode = db.get_episode(slug, episode_id)
+    episode_duration = (episode or {}).get('duration')
     threading.Thread(
         target=_run_cue_candidate_scan,
-        args=(podcast_id, episode_id, audio_path, similarity, min_count),
+        args=(podcast_id, episode_id, audio_path, similarity, min_count,
+              episode_duration),
         daemon=True,
         name=f'cue-candidates-{episode_id}',
     ).start()

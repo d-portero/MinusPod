@@ -219,3 +219,44 @@ def deserialize_mfcc(blob: bytes, n_coeffs: int) -> np.ndarray:
             f"mfcc blob size {arr.size} not divisible by n_coeffs {n_coeffs}"
         )
     return arr.reshape(-1, n_coeffs).astype(np.float32)
+
+
+def _run_ffmpeg_pipe(cmd, input_bytes: bytes, op_desc: str,
+                     timeout: float = FFT_TIMEOUT_S) -> bytes:
+    """Run an ffmpeg pipe transcode and return its stdout bytes.
+
+    Raises ``RuntimeError`` on timeout or non-zero exit.
+    """
+    try:
+        proc = tracked_run(cmd, input=input_bytes, capture_output=True,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"{op_desc} timed out") from e
+    if proc.returncode != 0:
+        stderr = (proc.stderr or b'').decode('utf-8', errors='replace')[:300]
+        raise RuntimeError(f"ffmpeg exit {proc.returncode}: {stderr}")
+    return proc.stdout or b''
+
+
+def pcm_to_flac(pcm_bytes: bytes, sample_rate: int) -> bytes:
+    """Encode int16 mono PCM to a FLAC byte stream (lossless, ~half the size)."""
+    cmd = [
+        'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
+        '-f', 's16le', '-ar', str(sample_rate), '-ac', '1', '-i', 'pipe:0',
+        '-c:a', 'flac', '-f', 'flac', 'pipe:1',
+    ]
+    return _run_ffmpeg_pipe(cmd, bytes(pcm_bytes), 'FLAC encode')
+
+
+def flac_to_wav(flac_bytes: bytes, max_seconds: float) -> bytes:
+    """Decode a FLAC stream to a 16-bit PCM WAV, preserving its source sample
+    rate and channel count (no resampling or downmixing) so the caller can
+    reject a mismatch. Output duration is capped at ``max_seconds`` as a
+    zip-bomb guard against a highly compressible FLAC.
+    """
+    cmd = [
+        'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
+        '-i', 'pipe:0', '-t', str(max_seconds),
+        '-c:a', 'pcm_s16le', '-f', 'wav', 'pipe:1',
+    ]
+    return _run_ffmpeg_pipe(cmd, flac_bytes, 'FLAC decode')

@@ -200,6 +200,21 @@ AUDIO_CUE_CAPTURE_MIN_SECONDS = 0.20    # Shortest cue a user may bracket (match
 AUDIO_CUE_CAPTURE_MAX_SECONDS = 10.0    # Longest cue a user may bracket
 AUDIO_CUE_CAPTURE_MAX_INTRO_SECONDS = 60.0  # Longest show-intro stinger a user may bracket
 AUDIO_CUE_CAPTURE_MAX_OUTRO_SECONDS = 60.0  # Longest show-outro stinger a user may bracket
+# Candidate discovery must reach the longest cue any type allows (intro/outro at
+# 60s), not just the 10s ad-break ceiling, or one-off intros/outros never surface
+# at full length. Derived from the per-type ceilings so it tracks them.
+AUDIO_CUE_CANDIDATE_MAX_LEN_SECONDS = max(
+    AUDIO_CUE_CAPTURE_MAX_SECONDS,
+    AUDIO_CUE_CAPTURE_MAX_INTRO_SECONDS,
+    AUDIO_CUE_CAPTURE_MAX_OUTRO_SECONDS,
+)
+# A candidate starting within this of the episode start is hinted show_intro;
+# ending within this of the episode end is hinted show_outro (a UI default the
+# user can override on capture).
+AUDIO_CUE_INTRO_WINDOW_SECONDS = 120.0
+AUDIO_CUE_OUTRO_WINDOW_SECONDS = 120.0
+# Cap on merged candidates (recurring + one-off) returned to the UI.
+AUDIO_CUE_CANDIDATE_MAX_RESULTS = 20
 AUDIO_CUE_PAIR_CONFIDENCE = 0.85        # Min cue confidence to synthesize an ad from a pair
 AUDIO_CUE_PAIR_MIN_BREAK_SECONDS = 30.0   # Shortest plausible cue-pair break
 AUDIO_CUE_PAIR_MAX_BREAK_SECONDS = 480.0  # Longest plausible cue-pair break
@@ -231,7 +246,7 @@ AUDIO_CUE_FP_KEY_BITS = 6                # top bits sampled per keyed subfingerp
 AUDIO_CUE_FP_KEY_SAMPLES = 4             # subfingerprints sampled to form an LSH key
 AUDIO_CUE_FP_MIN_GAP_SECONDS = 5.0       # occurrences closer than this are the same instance
 AUDIO_CUE_FP_MAX_COUNT = 30              # >this many repeats is pervasive filler, not a cue
-AUDIO_CUE_FP_MAX_LEN_SECONDS = 30.0      # cap on segment-length extension
+AUDIO_CUE_FP_MAX_LEN_SECONDS = AUDIO_CUE_CANDIDATE_MAX_LEN_SECONDS  # cap on segment-length extension (intro/outro length)
 AUDIO_CUE_FP_MAX_ANCHORS = 600           # cap on anchors scanned (bounds long-episode work)
 AUDIO_CUE_FP_MAX_CANDIDATES = 10         # cap on candidates returned to the UI
 # Generous loudness discovery profile for the capture-UI loud spots (the
@@ -243,7 +258,7 @@ AUDIO_CUE_FP_MAX_CANDIDATES = 10         # cap on candidates returned to the UI
 AUDIO_CUE_SCAN_FREQ_MIN_HZ = 500.0       # reach below the 1.5kHz live floor to catch bass stings
 AUDIO_CUE_SCAN_PROMINENCE_DB = 6.0       # dB over baseline to START a candidate burst (vs 9 live)
 AUDIO_CUE_SCAN_RELEASE_DB = 3.0          # extend the burst out to where it falls within this of baseline
-AUDIO_CUE_SCAN_MAX_DURATION_SECONDS = 12.0  # allow sustained musical beds (live cap is 2s)
+AUDIO_CUE_SCAN_MAX_DURATION_SECONDS = AUDIO_CUE_CANDIDATE_MAX_LEN_SECONDS  # allow sustained intro/outro beds (live cap is 2s)
 # The recurrence scan decodes the whole episode (90s+ on a long show), so it
 # runs in a background thread and the result is cached. A scan row older than
 # this is treated as crashed/expired and reclaimable for a fresh run.

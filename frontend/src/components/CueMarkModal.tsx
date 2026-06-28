@@ -18,6 +18,7 @@ import {
   createCueTemplate,
   deleteCueTemplate,
   getCueCandidates,
+  cueCandidateLabel,
   previewCueTemplate,
   CUE_TYPE_OPTIONS,
   captureMaxForType,
@@ -48,6 +49,8 @@ export interface CueMarkModalProps {
   episodeDuration: number;
   initialStart?: number;
   initialEnd?: number;
+  // Preselected capture type (e.g. a positional hint from a cue candidate).
+  initialCueType?: CueTemplateType;
   onClose: () => void;
   // Fired whenever a template is persisted (create or preview) so the list can
   // refresh.
@@ -66,7 +69,7 @@ export interface CueMarkModalProps {
 
 function CueMarkModal({
   podcastSlug, episodeId, episodeTitle, episodeDuration,
-  initialStart, initialEnd, onClose, onSaved, onFinalSave,
+  initialStart, initialEnd, initialCueType, onClose, onSaved, onFinalSave,
   captureMinSeconds = DEFAULT_MIN_REGION_SECONDS,
   captureMaxSeconds = DEFAULT_MAX_REGION_SECONDS,
   captureMaxIntroSeconds = DEFAULT_MAX_INTRO_SECONDS,
@@ -93,7 +96,7 @@ function CueMarkModal({
   // mid-edit and a pin drag still updates the displayed value.
   const [startInput, setStartInput] = useState(() => formatTime(defaults.cueStart));
   const [endInput, setEndInput] = useState(() => formatTime(defaults.cueEnd));
-  const [cueType, setCueType] = useState<CueTemplateType>('ad_break_boundary');
+  const [cueType, setCueType] = useState<CueTemplateType>(initialCueType ?? 'ad_break_boundary');
   // Capture ceiling follows the cue type: intro/outro stingers get a longer
   // allowance than ad-break dings (mirrors the server-side bound).
   const MAX_REGION_SECONDS = useMemo(
@@ -607,20 +610,27 @@ function CueMarkModal({
             {(candidates ?? []).map((c) => {
               const rel = (c.start - windowStart) / windowDuration;
               if (rel < 0 || rel > 1) return null;
+              const isOneOff = c.kind === 'one_off';
               return (
                 <button
                   key={`${c.start}-${c.end}`}
                   type="button"
                   onClick={() => seekTo(c.start)}
-                  title={`Recurs ${c.count}x, first at ${formatTime(c.start)} - click to jump`}
-                  aria-label={`Jump to recurring sound at ${formatTime(c.start)}`}
+                  title={`${cueCandidateLabel(c)}, at ${formatTime(c.start)} - click to jump`}
+                  aria-label={`Jump to cue candidate at ${formatTime(c.start)}`}
                   className="absolute inset-y-0 -translate-x-1/2 z-[5] w-3 cursor-pointer group"
                   style={{ left: `${rel * 100}%` }}
                 >
-                  <span className="block mx-auto h-full w-0.5 bg-sky-500/60 group-hover:bg-sky-500" />
-                  <span className="absolute top-0 left-1/2 -translate-x-1/2 px-1 rounded-b bg-sky-500 text-white text-[9px] font-bold leading-tight">
-                    {c.count}x
-                  </span>
+                  <span className={`block mx-auto h-full w-0.5 ${
+                    isOneOff
+                      ? 'bg-amber-500/60 group-hover:bg-amber-500'
+                      : 'bg-sky-500/60 group-hover:bg-sky-500'
+                  }`} />
+                  {!isOneOff && (
+                    <span className="absolute top-0 left-1/2 -translate-x-1/2 px-1 rounded-b bg-sky-500 text-white text-[9px] font-bold leading-tight">
+                      {c.count}x
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -706,8 +716,8 @@ function CueMarkModal({
             disabled={candidatesLoading}
           >
             {candidatesLoading
-              ? 'Finding recurring sounds...'
-              : candidatesError ? 'Try again' : 'Find recurring sounds'}
+              ? 'Finding cue candidates...'
+              : candidatesError ? 'Try again' : 'Find cue candidates'}
           </button>
           {candidatesError && !candidatesLoading && (
             <span className="text-xs text-destructive">{candidatesError}</span>
@@ -715,8 +725,8 @@ function CueMarkModal({
           {candidates !== null && !candidatesLoading && !candidatesError && (
             <span className="text-xs text-muted-foreground">
               {candidates.length === 0
-                ? 'No recurring sounds found.'
-                : `${candidates.length} recurring sound${candidates.length === 1 ? '' : 's'} (markers) - tap one to jump.`}
+                ? 'No cue candidates found.'
+                : `${candidates.length} cue candidate${candidates.length === 1 ? '' : 's'} (markers) - tap one to jump.`}
             </span>
           )}
         </div>

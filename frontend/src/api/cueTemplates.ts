@@ -188,10 +188,26 @@ export async function scanEpisodeCues(
   );
 }
 
+export type CueCandidateKind = 'recurring' | 'one_off';
+
 export interface CueCandidate {
   start: number;
   end: number;
-  count: number;
+  // 'recurring' (fingerprint self-repeat) or 'one_off' (a loud spot that does
+  // not recur -- an intro/outro/bumper). Older servers omit kind and only ever
+  // returned recurring candidates, so a missing kind is treated as recurring.
+  kind?: CueCandidateKind;
+  count?: number;         // recurring: times the sound recurs in the episode
+  prominenceDb?: number;  // one_off: loudness above baseline
+  suggestedType?: CueTemplateType | null;  // positional hint for the capture type
+}
+
+// Short badge label for a candidate: recurrence count, or a positional hint.
+export function cueCandidateLabel(c: CueCandidate): string {
+  if (c.kind !== 'one_off') return `Repeats ${c.count ?? '?'}x`;
+  if (c.suggestedType === 'show_intro') return 'Intro?';
+  if (c.suggestedType === 'show_outro') return 'Outro?';
+  return 'Loud spot';
 }
 
 export type CueCandidateScanStatus = 'scanning' | 'ready' | 'error';
