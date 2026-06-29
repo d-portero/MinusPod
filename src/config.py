@@ -235,6 +235,7 @@ AUDIO_CUE_XEP_SIBLING_LOOKBACK = 30    # completed episodes to scan for ones wit
 AUDIO_CUE_XEP_MIN_MATCHES = 2          # a segment must recur in >= this many siblings
 AUDIO_CUE_XEP_MIN_DURATION = 3.0       # ignore matches shorter than a real intro/outro
 AUDIO_CUE_XEP_MAX_DURATION = 30.0      # cap a suggested intro/outro span
+AUDIO_CUE_XEP_MAX_PER_ZONE = 3         # most intro (and outro) candidates to surface per episode
 AUDIO_CUE_XEP_SIMILARITY = AUDIO_CUE_RECURRENCE_SIMILARITY  # bit-similarity threshold for a cross-episode match
 # Fingerprint self-repeat discovery internals (candidate scan). The probe window
 # seeds LSH buckets; each bucket's first member anchors a full self-scan whose

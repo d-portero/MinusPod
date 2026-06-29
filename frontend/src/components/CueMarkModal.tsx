@@ -19,6 +19,7 @@ import {
   deleteCueTemplate,
   getCueCandidates,
   cueCandidateLabel,
+  cueTypeIsNonAd,
   previewCueTemplate,
   CUE_TYPE_OPTIONS,
   captureMaxForType,
@@ -134,6 +135,10 @@ function CueMarkModal({
   // recur in its source episode. Keyed to the bracket so re-bracketing re-warns,
   // and a second Save of the same bracket goes through.
   const [weakWarning, setWeakWarning] = useState<string | null>(null);
+  // show_intro/show_outro are non-ad (never cut). A segment at an episode's
+  // start/end is often a recurring ad, so saving one of these requires an
+  // explicit acknowledgement that it really is the show's own intro/outro.
+  const [nonAdAck, setNonAdAck] = useState(false);
   const weakWarnedForRef = useRef<string | null>(null);
   const [previewMatches, setPreviewMatches] = useState<CueTemplateMatch[] | null>(null);
   // Audio-cue candidates (on-demand scan: fingerprint recurrence + loud spots).
@@ -269,6 +274,26 @@ function CueMarkModal({
       candidatePollRef.current = null;
     }
   }, []);
+
+  // The non-ad acknowledgement is per cue: drop it on any type or region change
+  // so a confirmation made for one bracket can never carry to a re-bracketed ad.
+  useEffect(() => { setNonAdAck(false); }, [cueType, cueStart, cueEnd]);
+
+  // Show suggestion markers when the capture tool opens IF a scan is already
+  // cached -- a read-only peek, so opening the tool to view/tweak a template
+  // never triggers a server-side scan. The explicit button still runs one.
+  useEffect(() => {
+    const run = candidateRunRef.current;
+    getCueCandidates(podcastSlug, episodeId, false, true)
+      .then((res) => {
+        // Bail if a user-triggered scan started meanwhile, so a late peek can't
+        // clobber fresher results (findCandidates bumps candidateRunRef).
+        if (run === candidateRunRef.current && res.status === 'ready') {
+          setCandidates(res.candidates);
+        }
+      })
+      .catch(() => { /* peek is best-effort */ });
+  }, [podcastSlug, episodeId]);
 
   // Snap an ABSOLUTE time to the nearest onset. The peaks are for the current
   // window [windowStart, windowEnd], so convert to/from window-relative before
@@ -466,7 +491,8 @@ function CueMarkModal({
   const regionDuration = cueEnd - cueStart;
   const regionDurationValid =
     regionDuration >= MIN_REGION_SECONDS && regionDuration <= MAX_REGION_SECONDS;
-  const canSave = regionDurationValid && !saving;
+  const isNonAd = cueTypeIsNonAd(cueType);
+  const canSave = regionDurationValid && !saving && (!isNonAd || nonAdAck);
 
   // The last persisted template for the current selection. Save-and-preview and
   // Save reuse it when the bounds and type have not changed, so previewing
@@ -612,34 +638,41 @@ function CueMarkModal({
               </div>
               <div className="absolute top-[20px] bottom-0 left-1/2 -translate-x-1/2 w-0.5 bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.8)]" />
             </div>
-            {/* Cue-candidate markers: within-episode recurring stings (sky) plus
-                cross-episode intro/outro segments (amber). Click to jump;
-                full-height and tinted so they read clearly under the pins. */}
+            {/* Cue-candidate markers: each candidate's full [start, end] span is
+                shaded (recurring stings sky, cross-episode intro/outro amber) with
+                a labeled, clickable badge. The band is visual only so it does not
+                block waveform drag-select; the badge jumps to the candidate. */}
             {(candidates ?? []).map((c) => {
-              const rel = (c.start - windowStart) / windowDuration;
-              if (rel < 0 || rel > 1) return null;
+              const startRel = (c.start - windowStart) / windowDuration;
+              const endRel = (c.end - windowStart) / windowDuration;
+              if (endRel <= 0 || startRel >= 1) return null; // outside the window
               const isXep = c.kind === 'intro' || c.kind === 'outro';
+              const clampedStart = Math.max(0, startRel);
+              const left = clampedStart * 100;
+              const width = Math.max(0.5, (Math.min(1, endRel) - clampedStart) * 100);
               return (
-                <button
+                <div
                   key={`${c.kind ?? 'recurring'}-${c.start}-${c.end}`}
-                  type="button"
-                  onClick={() => seekTo(c.start)}
-                  title={`${cueCandidateLabel(c)}, at ${formatTime(c.start)} - click to jump`}
-                  aria-label={`Jump to cue candidate at ${formatTime(c.start)}`}
-                  className="absolute inset-y-0 -translate-x-1/2 z-[5] w-3 cursor-pointer group"
-                  style={{ left: `${rel * 100}%` }}
+                  className="absolute inset-y-0 z-[5] pointer-events-none"
+                  style={{ left: `${left}%`, width: `${width}%` }}
                 >
-                  <span className={`block mx-auto h-full w-0.5 ${
+                  <span className={`block h-full w-full ${
                     isXep
-                      ? 'bg-amber-500/60 group-hover:bg-amber-500'
-                      : 'bg-sky-500/60 group-hover:bg-sky-500'
+                      ? 'bg-amber-500/20 border-x border-amber-500/50'
+                      : 'bg-sky-500/20 border-x border-sky-500/50'
                   }`} />
-                  {!isXep && (
-                    <span className="absolute top-0 left-1/2 -translate-x-1/2 px-1 rounded-b bg-sky-500 text-white text-[9px] font-bold leading-tight">
-                      {c.count}x
-                    </span>
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => seekTo(c.start)}
+                    title={`${cueCandidateLabel(c)}, ${formatTime(c.start)} - ${formatTime(c.end)} - click to jump`}
+                    aria-label={`Cue candidate ${cueCandidateLabel(c)} at ${formatTime(c.start)}`}
+                    className={`pointer-events-auto absolute top-0 left-0 px-1 rounded-br text-white text-[9px] font-bold leading-tight whitespace-nowrap cursor-pointer ${
+                      isXep ? 'bg-amber-500 hover:bg-amber-600' : 'bg-sky-500 hover:bg-sky-600'
+                    }`}
+                  >
+                    {cueCandidateLabel(c)}
+                  </button>
+                </div>
               );
             })}
             {/* Pins. */}
@@ -845,6 +878,20 @@ function CueMarkModal({
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+            {isNonAd && (
+              <label className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={nonAdAck}
+                  onChange={(e) => setNonAdAck(e.target.checked)}
+                />
+                <span>
+                  This is show content (intro, outro, or transition), not an ad.
+                  It will be marked non-ad and never cut.
+                </span>
+              </label>
+            )}
           </div>
         </div>
 

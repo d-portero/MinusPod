@@ -12,7 +12,7 @@ info:
     - Monitor system status and trigger cleanup operations
     - Manage cross-episode ad patterns with network and podcast scope
     - Submit corrections to improve ad detection accuracy
-  version: 2.27.2
+  version: 2.27.3
   contact:
     name: MinusPod
   license:
@@ -5138,6 +5138,13 @@ paths:
           schema:
             type: string
             enum: ['1', 'true', 'yes']
+        - name: peek
+          in: query
+          required: false
+          description: Read-only -- return a cached result or 'idle' without starting a scan
+          schema:
+            type: string
+            enum: ['1', 'true', 'yes']
       responses:
         '200':
           description: Scan status, with candidates once ready (intro/outro first, then recurring by count)
@@ -5150,10 +5157,11 @@ paths:
                     type: string
                   status:
                     type: string
-                    enum: [scanning, ready, error]
+                    enum: [scanning, ready, error, idle]
                     description: |
                       `scanning` (poll again shortly), `ready` (candidates
-                      attached), or `error` (scan failed; see `error`).
+                      attached), `error` (scan failed; see `error`), or `idle`
+                      (peek found no cached scan; none was started).
                   error:
                     type: string
                     description: Present when status is error

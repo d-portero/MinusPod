@@ -47,7 +47,7 @@ from config import (
     AUDIO_CUE_XEP_MAX_SIBLINGS, AUDIO_CUE_XEP_SIBLING_LOOKBACK,
     AUDIO_CUE_XEP_MIN_MATCHES,
     AUDIO_CUE_XEP_MIN_DURATION, AUDIO_CUE_XEP_MAX_DURATION,
-    AUDIO_CUE_XEP_SIMILARITY,
+    AUDIO_CUE_XEP_MAX_PER_ZONE, AUDIO_CUE_XEP_SIMILARITY,
     AUDIO_CUE_RECURRENCE_SIMILARITY, AUDIO_CUE_RECURRENCE_MIN_COUNT,
     AUDIO_CUE_CANDIDATE_SCAN_STALE_SECONDS,
     AUDIO_CUE_TYPES, AUDIO_CUE_TYPE_DEFAULT, AUDIO_CUE_TYPE_SHOW_INTRO,
@@ -681,16 +681,7 @@ def episode_detected_cues(slug, episode_id):
     if not podcast:
         return error_response('feed not found', 404)
 
-    cue_signals = []
-    raw = db.get_episode_audio_analysis(slug, episode_id)
-    if raw:
-        try:
-            data = json.loads(raw)
-            cue_signals = [s for s in (data.get('signals') or [])
-                           if s.get('signal_type') == 'audio_cue'
-                           and is_template_cue(s.get('details'))]
-        except (ValueError, TypeError):
-            cue_signals = []
+    cue_signals = _episode_template_cue_signals(db, slug, episode_id)
 
     # Cheap existence check (no decode) -- gates whether a template can be cut.
     _, err = _resolve_original_audio(db, storage, slug, episode_id)
@@ -701,6 +692,38 @@ def episode_detected_cues(slug, episode_id):
         'hasOriginalAudio': has_original_audio,
         'detectedCues': build_detected_cues(cue_signals, []),
     })
+
+
+def _episode_template_cue_signals(db, slug, episode_id):
+    """Persisted template-match audio-cue signals for an episode (no decode)."""
+    raw = db.get_episode_audio_analysis(slug, episode_id)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        return [s for s in (data.get('signals') or [])
+                if s.get('signal_type') == 'audio_cue' and is_template_cue(s.get('details'))]
+    except (ValueError, TypeError):
+        return []
+
+
+def _templated_cue_spans(db, podcast_id, slug, episode_id):
+    """Time spans on this episode already covered by a cue template (no decode), so
+    the candidate scan can skip cues the user has already captured. Combines two
+    sources: persisted template MATCHES on this episode, and enabled templates whose
+    source is this episode (a match signal is only stored on reprocessing, so a
+    just-captured template would otherwise reappear). Returns [(start, end), ...]."""
+    spans = []
+    for s in _episode_template_cue_signals(db, slug, episode_id):
+        start, end = s.get('start'), s.get('end')
+        if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+            spans.append((float(start), float(end)))
+    for t in db.list_cue_templates_metadata(podcast_id):
+        if t.get('source_episode_id') == episode_id and t.get('enabled'):
+            off, dur = t.get('source_offset_s'), t.get('duration_s')
+            if off is not None and dur:
+                spans.append((off, off + dur))
+    return spans
 
 
 def _completed_sibling_audio_paths(db, storage, slug, episode_id):
@@ -765,13 +788,15 @@ def _run_cue_candidate_scan(podcast_id, episode_id, slug, audio_path,
                 min_matches=AUDIO_CUE_XEP_MIN_MATCHES,
                 min_duration=AUDIO_CUE_XEP_MIN_DURATION,
                 max_duration=AUDIO_CUE_XEP_MAX_DURATION,
+                max_per_zone=AUDIO_CUE_XEP_MAX_PER_ZONE,
                 target_fingerprint=target_fp)
         except Exception:
             logger.exception(
                 'cross-episode pass failed for %s/%s; using recurrence only',
                 slug, episode_id)
             cross_episode = []
-        candidates = merge_cue_candidates(recurring, cross_episode)
+        templated = _templated_cue_spans(db, podcast_id, slug, episode_id)
+        candidates = merge_cue_candidates(recurring, cross_episode, templated)
         db.save_cue_candidate_scan_result(podcast_id, episode_id, candidates)
     except Exception as e:
         logger.exception('cue candidate scan failed for %s/%s', podcast_id, episode_id)
@@ -799,7 +824,8 @@ def episode_cue_candidates(slug, episode_id):
     with a kind ('recurring'|'intro'|'outro') and a cue-type hint. Decoding can
     exceed the proxy timeout, so the work runs in a background thread and this
     endpoint returns a status the UI polls: 'scanning', 'ready', or 'error'.
-    Pass ?rescan=1 to force a fresh scan.
+    Pass ?rescan=1 to force a fresh scan. Pass ?peek=1 for a read-only check that
+    returns a cached result or 'idle' without ever starting a scan.
     """
     if not is_valid_episode_id(episode_id):
         abort(400)
@@ -810,6 +836,19 @@ def episode_cue_candidates(slug, episode_id):
         return error_response('feed not found', 404)
     podcast_id = podcast['id']
     force = request.args.get('rescan') in ('1', 'true', 'yes')
+    peek = request.args.get('peek') in ('1', 'true', 'yes')
+
+    if peek:
+        # Read-only: return a cached current result, or 'idle'. Never starts a
+        # scan, so opening the capture tool to view/tweak a template costs nothing.
+        row = db.get_cue_candidate_scan(podcast_id, episode_id)
+        if row and row.get('status') == 'ready':
+            candidates = json.loads(row.get('candidates_json') or '[]')
+            if _candidates_are_current(candidates):
+                return json_response({
+                    'episodeId': episode_id, 'status': 'ready', 'candidates': candidates,
+                })
+        return json_response({'episodeId': episode_id, 'status': 'idle', 'candidates': []})
 
     state = db.claim_cue_candidate_scan(
         podcast_id, episode_id, AUDIO_CUE_CANDIDATE_SCAN_STALE_SECONDS, force=force)

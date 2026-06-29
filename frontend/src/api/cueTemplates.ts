@@ -209,7 +209,13 @@ export function cueCandidateLabel(c: CueCandidate): string {
   return `Repeats ${c.count ?? '?'}x`;
 }
 
-export type CueCandidateScanStatus = 'scanning' | 'ready' | 'error';
+// Cue types the backend treats as non-ad (never cut) -- mirrors the 'non_ad' role
+// in AUDIO_CUE_TYPES (src/config.py). Keep in sync when adding a non-ad type.
+export function cueTypeIsNonAd(t: CueTemplateType): boolean {
+  return t === 'show_intro' || t === 'show_outro' || t === 'content_transition';
+}
+
+export type CueCandidateScanStatus = 'scanning' | 'ready' | 'error' | 'idle';
 
 export interface CueCandidatesResponse {
   episodeId: string;
@@ -228,8 +234,10 @@ export async function getCueCandidates(
   slug: string,
   episodeId: string,
   rescan = false,
+  peek = false,
 ): Promise<CueCandidatesResponse> {
-  const query = rescan ? '?rescan=1' : '';
+  // peek returns the cached result (or status 'idle') without starting a scan.
+  const query = peek ? '?peek=1' : rescan ? '?rescan=1' : '';
   return apiRequest<CueCandidatesResponse>(
     `/feeds/${slug}/episodes/${episodeId}/cue-candidates${query}`,
   );

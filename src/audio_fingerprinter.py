@@ -143,27 +143,27 @@ def _cross_pair_similarity(a_arr, a, b_arr, b, length):
     return 1.0 - bad / (length * 32)
 
 
-def _find_shared_segment(target, siblings, win, similarity, min_matches,
-                         min_len, max_len, step=None, prefer='longest'):
-    """Contiguous run of ``target`` that also appears in at least ``min_matches``
-    of the ``siblings`` fingerprint arrays.
+def _find_shared_segments(target, siblings, win, similarity, min_matches,
+                          min_len, max_len, step=None):
+    """Every contiguous run of ``target`` that also appears in at least
+    ``min_matches`` of the ``siblings`` fingerprint arrays.
 
     Pure function over raw Chromaprint int arrays. For each probe start in the
     target, find each sibling's best-matching offset, then grow the run -- both
     backward (to the true onset) and forward -- one ``step``-sized slice at a time,
     keeping it while >= ``min_matches`` siblings still match that *new* slice
     (incremental, so it stops at the real boundary rather than riding a strong
-    prefix's cumulative average). ``prefer`` selects among qualifying runs:
-    ``'earliest'`` (smallest start, for intros), ``'latest'`` (largest end, for
-    outros), or ``'longest'``. Returns ``(start, end, match_count)`` indices into
-    ``target``, or ``None``. Real intros/outros play once per episode but recur
-    across episodes, which is exactly such a shared head/tail run.
+    prefix's cumulative average). Returns a list of ``(start, end, match_count)``
+    runs as indices into ``target``, ordered left to right and non-overlapping
+    (each found run is skipped past). Real intros/outros play once per episode but
+    recur across episodes, which is exactly such a shared head/tail run; a show can
+    have several (theme plus a recurring sponsor read), so all are returned.
     """
     target = np.asarray(target, dtype=np.int64).astype(np.uint32)
     sibs = [np.asarray(s, dtype=np.int64).astype(np.uint32) for s in siblings]
     sibs = [s for s in sibs if len(s) >= win]
     if len(target) < win or len(sibs) < min_matches:
-        return None
+        return []
     if step is None:
         step = max(1, win // 2)
 
@@ -177,8 +177,9 @@ def _find_shared_segment(target, siblings, win, similarity, min_matches,
                 out.append((s, o))
         return out
 
-    best = None  # (start, end, count)
+    found = []
     a = 0
+    claimed_until = 0  # backward walk floor: never re-enter an already-emitted run
     while a + win <= len(target):
         # Each sibling's best offset for the probe window at `a`.
         alive = []
@@ -192,9 +193,10 @@ def _find_shared_segment(target, siblings, win, similarity, min_matches,
             a += step
             continue
         lo, hi = a, a + win
-        # Walk backward to the onset, then forward, intersecting survivors so the
-        # final set matches the whole [lo, hi]; bound total length by max_len.
-        while lo - step >= 0 and (hi - (lo - step)) <= max_len:
+        # Walk backward to the onset (not past an already-emitted run), then
+        # forward, intersecting survivors so the final set matches the whole
+        # [lo, hi]; bound the emitted length by max_len.
+        while lo - step >= claimed_until and (hi - (lo - step)) <= max_len:
             cand = _slice_ok(alive, lo - step, step)
             if len(cand) < min_matches:
                 break
@@ -205,15 +207,24 @@ def _find_shared_segment(target, siblings, win, similarity, min_matches,
                 break
             alive, hi = cand, hi + step
         if len(alive) >= min_matches and (hi - lo) >= min_len:
-            if best is None \
-                    or (prefer == 'earliest' and lo < best[0]) \
-                    or (prefer == 'latest' and hi > best[1]) \
-                    or (prefer == 'longest' and (hi - lo) > (best[1] - best[0])):
-                best = (lo, hi, len(alive))
-            a = max(hi, a + step)  # skip past the run; don't re-find sub-windows
+            found.append((lo, hi, len(alive)))
+            seg_end = hi
+            if hi + step - lo > max_len:
+                # The run was capped at max_len while the shared sound continues;
+                # skip past its true end so one long segment yields one candidate,
+                # not overlapping max_len fragments. (When the run instead ended at
+                # its real boundary, hi already is that end -- no skip needed.)
+                tail = alive
+                while seg_end + step <= len(target):
+                    cand = _slice_ok(tail, seg_end, step)
+                    if len(cand) < min_matches:
+                        break
+                    tail, seg_end = cand, seg_end + step
+            claimed_until = seg_end
+            a = max(seg_end, a + step)
         else:
             a += step
-    return best
+    return found
 
 
 def _discover_repeats(raw_ints, fp_duration, similarity, min_count):
@@ -633,7 +644,7 @@ class AudioFingerprinter:
     def discover_cross_episode_cues(self, target_path, sibling_paths, *,
                                     head_seconds, tail_seconds, window_seconds,
                                     similarity, min_matches, min_duration,
-                                    max_duration, target_fingerprint=None):
+                                    max_duration, max_per_zone, target_fingerprint=None):
         """Find intro/outro cues by comparing this episode's head and tail
         fingerprint against recent completed sibling episodes.
 
@@ -678,21 +689,22 @@ class AudioFingerprinter:
             return ints[max(n - want, n // 2):]
 
         out = []
-        intro = _find_shared_segment(
+        intros = _find_shared_segments(
             _head(t_ints, t_dur), [_head(s, d) for s, d in sib_fps],
-            win, similarity, min_matches, min_len, max_len, prefer='earliest')
-        if intro:
-            a, b, count = intro
+            win, similarity, min_matches, min_len, max_len)
+        for a, b, count in intros[:max_per_zone]:
             out.append({'start': round(a / fps, 2), 'end': round(b / fps, 2),
                         'kind': 'intro', 'episodeMatches': count})
 
         t_tail = _tail(t_ints, t_dur)
         tail_offset = (len(t_ints) - len(t_tail)) / fps
-        outro = _find_shared_segment(
+        outros = _find_shared_segments(
             t_tail, [_tail(s, d) for s, d in sib_fps],
-            win, similarity, min_matches, min_len, max_len, prefer='latest')
-        if outro:
-            a, b, count = outro
+            win, similarity, min_matches, min_len, max_len)
+        # Keep the runs nearest the episode end -- the true sign-off outro is the
+        # last tail run, not the earliest. (Guard the -0 slice: outros[-0:] is the
+        # whole list, which would ignore a max_per_zone of 0.)
+        for a, b, count in (outros[-max_per_zone:] if max_per_zone > 0 else []):
             out.append({'start': round(tail_offset + a / fps, 2),
                         'end': round(tail_offset + b / fps, 2),
                         'kind': 'outro', 'episodeMatches': count})

@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.3] - 2026-06-28
+
+### Fixed
+
+- Cue suggestion markers are visible in the capture tool again. They load when the tool opens (instead of only after a separate scan) and render as labeled shaded spans across each candidate's full length, rather than unlabeled ticks pinned to the episode edges that read as missing when a scan returned only an intro or outro.
+
+### Changed
+
+- The "Find audio cues" scan surfaces up to three recurring intros and three outros a feed shares across episodes, not just one of each, so a show with both a theme and a recurring sponsor read shows both. It also skips any sound already captured as a cue template, so the scan only suggests new cues.
+- Saving a cue as a non-ad type (show intro, show outro, or content transition) now requires confirming it is the show's own audio and not an ad. These types are exempt from cutting, and a recurring segment at an episode's start or end is often a pre-roll or post-roll ad, so the confirmation stops a recurring ad from being marked non-ad and left in.
+
 ## [2.27.2] - 2026-06-28
 
 ### Changed

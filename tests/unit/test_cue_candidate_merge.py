@@ -64,5 +64,28 @@ class TestMergeCueCandidates:
         out = merge_cue_candidates(recurring, xe)
         assert [c['kind'] for c in out] == ['intro', 'recurring']
 
+    def test_candidate_overlapping_active_template_is_dropped(self):
+        # The user already captured this cue; don't re-suggest it.
+        recurring = [{'start': 400.0, 'end': 404.0, 'count': 4}]
+        xe = [{'start': 2.0, 'end': 9.0, 'kind': 'intro', 'episodeMatches': 3}]
+        out = merge_cue_candidates(recurring, xe, templated_spans=[(1.0, 10.0), (399.0, 405.0)])
+        assert out == []
+
+    def test_only_new_candidates_survive_template_dedup(self):
+        recurring = [{'start': 400.0, 'end': 404.0, 'count': 4}]
+        xe = [{'start': 2.0, 'end': 9.0, 'kind': 'intro', 'episodeMatches': 3}]
+        out = merge_cue_candidates(recurring, xe, templated_spans=[(1.0, 10.0)])
+        assert [c['kind'] for c in out] == ['recurring']
+
+    def test_overlapping_cross_episode_candidates_deduped(self):
+        # A long shared segment can yield several near-duplicate runs; keep one.
+        xe = [
+            {'start': 2.0, 'end': 12.0, 'kind': 'intro', 'episodeMatches': 3},
+            {'start': 5.0, 'end': 15.0, 'kind': 'intro', 'episodeMatches': 2},
+        ]
+        out = merge_cue_candidates([], xe)
+        assert len(out) == 1
+        assert out[0]['start'] == 2.0
+
     def test_empty_inputs_give_empty_list(self):
         assert merge_cue_candidates([], []) == []
