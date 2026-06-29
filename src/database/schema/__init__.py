@@ -159,7 +159,6 @@ class SchemaMixin:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 created_by TEXT DEFAULT 'user',
-                formant_atten_db REAL,
                 FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
             )
         """)
@@ -1298,15 +1297,12 @@ class SchemaMixin:
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                     created_by TEXT DEFAULT 'user',
-                    formant_atten_db REAL,
                     FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
                 )
             """)
             if not fresh:
                 cols = self._get_table_columns(conn, 'audio_cue_templates')
                 self._add_column_if_missing(conn, 'audio_cue_templates', 'pcm_blob', 'BLOB', cols)
-                # Per-template voiceover-robust matching (#350); NULL inherits global.
-                self._add_column_if_missing(conn, 'audio_cue_templates', 'formant_atten_db', 'REAL', cols)
                 self._add_column_if_missing(conn, 'audio_cue_templates', 'pcm_sample_rate', 'INTEGER', cols)
                 self._add_column_if_missing(
                     conn, 'audio_cue_templates', 'scope',

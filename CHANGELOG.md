@@ -10,11 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Voiceover-robust cue matching (#350). A saved cue that is a music bed under a per-episode voiceover (for example the WSJ "The Journal" jingle) matched poorly across episodes because the voiceover varies. A new opt-in setting attenuates the 800-3400 Hz speech-formant band during template matching so a cue keys on its constant music bed. It is off by default and surgical: only the formant band is touched, so bass beds and high-frequency stings are unaffected, and existing templates are unchanged until you turn it on. Tunable globally via `audio_cue_formant_atten_db`, with a per-template column as forward-compatible groundwork.
+- Voiceover-robust cue matching (#350). A saved cue that is a music bed under a per-episode voiceover (for example the WSJ "The Journal" jingle) matched poorly across episodes because the voiceover varies. A new opt-in setting attenuates the 800-3400 Hz speech-formant band during template matching so a cue keys on its constant music bed. It is off by default and surgical: only the formant band is touched, so bass beds and high-frequency stings are unaffected, and existing templates are unchanged until you turn it on. Set `audio_cue_formant_atten_db` (a global setting) to enable it.
 
 ### Changed
 
-- Recurring cue suggestions stop matching common spoken phrases (#350). The within-episode scan now uses a longer 4-second probe window (was 2s), requires more repeats, and runs a music-vs-speech check that drops candidates that are just talking while keeping musical stings (even ones with a voiceover). Cross-episode intro/outro detection is unchanged. The recurring window is tunable via `audio_cue_fp_recurring_window_seconds`.
+- Recurring cue suggestions stop matching common spoken phrases (#350). The within-episode "Find audio cues" scan now runs a music-vs-speech check that drops candidates that are just talking (energy in the speech-formant band, not tonal, gappy) while keeping musical stings, even ones with a voiceover. Cross-episode intro/outro detection is unchanged. Already-scanned episodes are rescanned once so the filter applies to them too.
 - The "Content transition" cue type is relabeled "Content transition (may or may not be an ad)" and its save dialog no longer claims the segment is not an ad (#350). It is still never cut on its own; the wording now matches what it does. The model prompt was already correct and is unchanged.
 - "Re-detect Ads" (re-run ad detection on the saved transcript) now appears for failed episodes that still have a transcript, not only completed ones (#349). The backend already allowed this; the button was gated on the regenerated VTT, which a failed run never produced.
 

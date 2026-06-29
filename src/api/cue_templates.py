@@ -43,7 +43,7 @@ from config import (
     AUDIO_CUE_FREQ_MAX_HZ,
     AUDIO_CUE_SCAN_FREQ_MIN_HZ, AUDIO_CUE_SCAN_PROMINENCE_DB,
     AUDIO_CUE_SCAN_RELEASE_DB, AUDIO_CUE_SCAN_MAX_DURATION_SECONDS,
-    AUDIO_CUE_FP_WINDOW_SECONDS, AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS,
+    AUDIO_CUE_FP_WINDOW_SECONDS,
     AUDIO_CUE_SPEECH_BAND_LO_HZ, AUDIO_CUE_SPEECH_BAND_HI_HZ,
     AUDIO_CUE_SPEECH_BAND_RATIO_MAX, AUDIO_CUE_SPEECH_FLATNESS_MIN,
     AUDIO_CUE_SPEECH_SUSTAINED_MAX,
@@ -816,8 +816,6 @@ def _run_cue_candidate_scan(podcast_id, episode_id, slug, audio_path,
                 raise RuntimeError(f'fingerprint decode failed for {audio_path}')
         recurring = fp.discover_recurring_spots(
             audio_path, similarity=similarity, min_count=min_count,
-            window_seconds=db.get_setting_float(
-                'audio_cue_fp_recurring_window_seconds', AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS),
             target_fingerprint=target_fp)
         # Drop within-episode candidates that are just common spoken phrases (#350);
         # the cross-episode intro/outro pass below is exempt (intros can be spoken).
@@ -842,18 +840,33 @@ def _run_cue_candidate_scan(podcast_id, episode_id, slug, audio_path,
             cross_episode = []
         templated = _templated_cue_spans(db, podcast_id, slug, episode_id)
         candidates = merge_cue_candidates(recurring, cross_episode, templated)
+        # Stamp the schema version so caches produced before the speech filter
+        # (#350 4A) read as stale and get rescanned once (the filter applies
+        # retroactively).
+        for c in candidates:
+            c['sv'] = CUE_CANDIDATE_SCHEMA_VERSION
         db.save_cue_candidate_scan_result(podcast_id, episode_id, candidates)
     except Exception as e:
         logger.exception('cue candidate scan failed for %s/%s', podcast_id, episode_id)
         db.save_cue_candidate_scan_error(podcast_id, episode_id, str(e))
 
 
+# Bumped when the candidate set's meaning changes so old caches are rescanned.
+# 2: the within-episode speech filter (#350 4A) -- a 2.28.0 cache can still hold
+# speech-like recurring candidates the filter now drops, so force a rescan.
+CUE_CANDIDATE_SCHEMA_VERSION = 2
+
+
 def _candidates_are_current(candidates):
-    """A cached scan from before 2.27.2 used kinds/fields this version no longer
-    emits (one_off / prominenceDb). Treat such rows as stale so they are rescanned
-    rather than rendered with the wrong shape. An empty result is current."""
+    """Stale-cache guard. A scan from before 2.27.2 used kinds/fields this version
+    no longer emits (one_off / prominenceDb); a scan from before 2.29.0 predates
+    the recurring speech filter. Both lack the current schema version stamp, so
+    they are treated as stale and rescanned rather than rendered. An empty result
+    is current (nothing stale to show)."""
     return all(
-        c.get('kind') in ('recurring', 'intro', 'outro') and 'prominenceDb' not in c
+        c.get('kind') in ('recurring', 'intro', 'outro')
+        and 'prominenceDb' not in c
+        and c.get('sv') == CUE_CANDIDATE_SCHEMA_VERSION
         for c in candidates
     )
 

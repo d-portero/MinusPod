@@ -227,8 +227,7 @@ AUDIO_CUE_PAIR_MAX_BREAK_FRACTION = 0.5
 # so 0.73 buys headroom; 0.70 is a noise cliff (the candidate list triples and a
 # non-ad cluster nearly ties the real sting), so do not go below ~0.72.
 AUDIO_CUE_RECURRENCE_SIMILARITY = 0.73   # fingerprint bit-similarity to call two windows the same sound
-AUDIO_CUE_RECURRENCE_MIN_COUNT = 5       # minimum occurrences to suggest a sound (raised from 3: a
-                                         # common phrase clears 3 easily; a produced sting recurs more)
+AUDIO_CUE_RECURRENCE_MIN_COUNT = 3       # minimum occurrences to suggest a sound
 # Cross-episode intro/outro detection (candidate scan). Real intros/outros play
 # once per episode, so within-episode recurrence cannot see them, but they recur
 # ACROSS episodes near the start/end. We fingerprint this episode's head and tail
@@ -248,10 +247,7 @@ AUDIO_CUE_XEP_SIMILARITY = AUDIO_CUE_RECURRENCE_SIMILARITY  # bit-similarity thr
 # seeds LSH buckets; each bucket's first member anchors a full self-scan whose
 # segment is then grown to its true length and its whole extent claimed so a long
 # recurring block surfaces as one candidate, not many fragments.
-AUDIO_CUE_FP_WINDOW_SECONDS = 2.0        # LSH probe window (~16 subfingerprints) for cross-episode intro/outro
-AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS = 4.0  # longer probe window for WITHIN-episode recurrence (#350): a
-                                         # ~1-2s common phrase no longer fills a window; a real sting (the
-                                         # measured WSJ cue is 2.82s) still does. Cross-episode keeps 2.0s.
+AUDIO_CUE_FP_WINDOW_SECONDS = 2.0        # LSH probe window (~16 subfingerprints)
 AUDIO_CUE_FP_KEY_BITS = 6                # top bits sampled per keyed subfingerprint
 AUDIO_CUE_FP_KEY_SAMPLES = 4             # subfingerprints sampled to form an LSH key
 AUDIO_CUE_FP_MIN_GAP_SECONDS = 5.0       # occurrences closer than this are the same instance

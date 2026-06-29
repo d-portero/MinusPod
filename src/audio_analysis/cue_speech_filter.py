@@ -19,14 +19,23 @@ import logging
 import numpy as np
 from scipy.fft import rfft, rfftfreq
 
+from config import (
+    AUDIO_CUE_SPEECH_BAND_LO_HZ, AUDIO_CUE_SPEECH_BAND_HI_HZ,
+    AUDIO_CUE_SPEECH_BAND_RATIO_MAX, AUDIO_CUE_SPEECH_FLATNESS_MIN,
+    AUDIO_CUE_SPEECH_SUSTAINED_MAX,
+)
+
 logger = logging.getLogger('podcast.audio_analysis.cue_speech_filter')
 
 _N_FFT = 512
 _HOP = 160          # 10 ms at 16 kHz
 _SUSTAIN_FLOOR = 0.15   # frame RMS (normalized to the clip max) counted as "energy present"
+_WINDOW = np.hanning(_N_FFT).astype(np.float32)
 
 
-def speechiness_features(pcm, sample_rate=16000, *, lo_hz=300.0, hi_hz=3400.0):
+def speechiness_features(pcm, sample_rate=16000, *,
+                         lo_hz=AUDIO_CUE_SPEECH_BAND_LO_HZ,
+                         hi_hz=AUDIO_CUE_SPEECH_BAND_HI_HZ):
     """Return ``(speech_band_ratio, spectral_flatness, sustained_frac)`` for a clip.
 
     - speech_band_ratio: share of spectral energy in ``[lo_hz, hi_hz]`` (formants).
@@ -45,9 +54,9 @@ def speechiness_features(pcm, sample_rate=16000, *, lo_hz=300.0, hi_hz=3400.0):
     # Python list. The guard above guarantees at least one frame.
     n_frames = 1 + (pcm.size - _N_FFT) // _HOP
     idx = np.arange(_N_FFT)[None, :] + _HOP * np.arange(n_frames)[:, None]
-    win = np.hanning(_N_FFT).astype(np.float32)
-    frames = pcm[idx] * win
-    spectra = np.abs(rfft(frames, axis=1)) ** 2
+    frames = pcm[idx] * _WINDOW
+    spec = rfft(frames, axis=1)
+    spectra = spec.real ** 2 + spec.imag ** 2   # power, no redundant abs() sqrt
     total = spectra.sum() + 1e-12
     freqs = rfftfreq(_N_FFT, 1.0 / sample_rate)
     band = (freqs >= lo_hz) & (freqs <= hi_hz)
@@ -62,8 +71,11 @@ def speechiness_features(pcm, sample_rate=16000, *, lo_hz=300.0, hi_hz=3400.0):
     return speech_band_ratio, flatness, sustained_frac
 
 
-def is_likely_speech(pcm, sample_rate=16000, *, lo_hz=300.0, hi_hz=3400.0,
-                     ratio_max=0.55, flatness_min=0.02, sustained_max=0.65):
+def is_likely_speech(pcm, sample_rate=16000, *,
+                     lo_hz=AUDIO_CUE_SPEECH_BAND_LO_HZ, hi_hz=AUDIO_CUE_SPEECH_BAND_HI_HZ,
+                     ratio_max=AUDIO_CUE_SPEECH_BAND_RATIO_MAX,
+                     flatness_min=AUDIO_CUE_SPEECH_FLATNESS_MIN,
+                     sustained_max=AUDIO_CUE_SPEECH_SUSTAINED_MAX):
     """True only when a clip looks like plain speech on all three axes.
 
     Conservative by design (AND of the three conditions) so a tonal or sustained

@@ -9,6 +9,7 @@ export interface AudioCueState {
   prominenceDb: number;
   minConfidence: number;
   templateScore: number;
+  formantAttenDb: number;
   createFromPairs: boolean;
   snapConfidence: number;
   captureMinSeconds: number;
@@ -28,6 +29,7 @@ interface AudioCueDetectionSectionProps {
 
 type NumericKey =
   | 'freqMinHz' | 'freqMaxHz' | 'prominenceDb' | 'minConfidence' | 'templateScore'
+  | 'formantAttenDb'
   | 'snapConfidence' | 'captureMinSeconds' | 'captureMaxSeconds'
   | 'captureMaxIntroSeconds' | 'captureMaxOutroSeconds'
   | 'pairConfidence' | 'pairMinBreakSeconds' | 'pairMaxBreakSeconds'
@@ -200,6 +202,8 @@ function AudioCueDetectionSection({ audioCue, onChange }: AudioCueDetectionSecti
 
             <div className="border-t border-border pt-4 space-y-5">
               <span className="block text-sm font-medium text-foreground">Advanced tuning</span>
+              {numRow('formantAttenDb', 'audioCueFormantAttenDb', 'Voiceover attenuation (dB)', 0, 24, 1, 0,
+                'When a saved cue is music under a voiceover that varies per episode, attenuate the 800-3400 Hz speech band so matching keys on the constant bed. 0 = off. Only that band is touched, so bass beds and high chimes are unaffected.')}
               {numRow('snapConfidence', 'audioCueSnapConfidence', 'Snap confidence floor', 0, 1, 0.05, 0.8,
                 'Minimum cue confidence before a cue may move an ad edge. Higher is stricter.')}
               {numRow('captureMinSeconds', 'audioCueCaptureMinSeconds', 'Capture minimum length (s)', 0.05, 10, 0.05, 0.2,

@@ -32,7 +32,6 @@ from config import (
     FPCALC_TIMEOUT_FULL,
     SUBPROCESS_VERSION_PROBE,
     AUDIO_CUE_FP_WINDOW_SECONDS,
-    AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS,
     AUDIO_CUE_FP_KEY_BITS,
     AUDIO_CUE_FP_KEY_SAMPLES,
     AUDIO_CUE_FP_MIN_GAP_SECONDS,
@@ -228,8 +227,7 @@ def _find_shared_segments(target, siblings, win, similarity, min_matches,
     return found
 
 
-def _discover_repeats(raw_ints, fp_duration, similarity, min_count,
-                      window_seconds=AUDIO_CUE_FP_WINDOW_SECONDS):
+def _discover_repeats(raw_ints, fp_duration, similarity, min_count):
     """Find windows of a raw Chromaprint fingerprint that recur across the file.
 
     Pure function over the fpcalc ``-raw`` int array (no I/O). A short probe
@@ -252,7 +250,7 @@ def _discover_repeats(raw_ints, fp_duration, similarity, min_count,
     if n == 0 or fp_duration <= 0:
         return []
     fps = n / fp_duration
-    win = max(4, int(round(window_seconds * fps)))
+    win = max(4, int(round(AUDIO_CUE_FP_WINDOW_SECONDS * fps)))
     if n < win * 2:
         return []
     min_gap = max(1, int(round(AUDIO_CUE_FP_MIN_GAP_SECONDS * fps)))
@@ -616,7 +614,6 @@ class AudioFingerprinter:
             return None
 
     def discover_recurring_spots(self, audio_path, *, similarity, min_count,
-                                 window_seconds=AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS,
                                  target_fingerprint=None):
         """Find recurring sounds in an episode as cue-template candidates.
 
@@ -638,8 +635,7 @@ class AudioFingerprinter:
                 audio_path)
             return []
         raw_ints, fp_duration = full_fp
-        candidates = _discover_repeats(
-            raw_ints, fp_duration, similarity, min_count, window_seconds=window_seconds)
+        candidates = _discover_repeats(raw_ints, fp_duration, similarity, min_count)
         logger.info(
             "Cue candidate discovery: %d candidates from %d subfingerprints (%.0fs)",
             len(candidates), len(raw_ints), fp_duration)

@@ -91,6 +91,7 @@ function Settings() {
     prominenceDb: 9,
     minConfidence: 0.8,
     templateScore: 0.75,
+    formantAttenDb: 0,
     createFromPairs: false,
     snapConfidence: 0.8,
     captureMinSeconds: 0.2,
@@ -401,6 +402,7 @@ function Settings() {
         prominenceDb: settings.audioCueProminenceDb?.value ?? d.audioCueProminenceDb,
         minConfidence: settings.audioCueMinConfidence?.value ?? d.audioCueMinConfidence,
         templateScore: settings.audioCueTemplateScore?.value ?? d.audioCueTemplateScore ?? 0.75,
+        formantAttenDb: settings.audioCueFormantAttenDb?.value ?? d.audioCueFormantAttenDb ?? 0,
         createFromPairs: settings.audioCueCreateFromPairs?.value ?? d.audioCueCreateFromPairs ?? false,
         snapConfidence: settings.audioCueSnapConfidence?.value ?? d.audioCueSnapConfidence ?? 0.8,
         captureMinSeconds: settings.audioCueCaptureMinSeconds?.value ?? d.audioCueCaptureMinSeconds ?? 0.2,
@@ -469,6 +471,7 @@ function Settings() {
     if (audioCue.prominenceDb !== (settings.audioCueProminenceDb?.value ?? d.audioCueProminenceDb)) payload.audioCueProminenceDb = audioCue.prominenceDb;
     if (audioCue.minConfidence !== (settings.audioCueMinConfidence?.value ?? d.audioCueMinConfidence)) payload.audioCueMinConfidence = audioCue.minConfidence;
     if (audioCue.templateScore !== (settings.audioCueTemplateScore?.value ?? d.audioCueTemplateScore ?? 0.75)) payload.audioCueTemplateScore = audioCue.templateScore;
+    if (audioCue.formantAttenDb !== (settings.audioCueFormantAttenDb?.value ?? d.audioCueFormantAttenDb ?? 0)) payload.audioCueFormantAttenDb = audioCue.formantAttenDb;
     if (audioCue.createFromPairs !== (settings.audioCueCreateFromPairs?.value ?? d.audioCueCreateFromPairs ?? false)) payload.audioCueCreateFromPairs = audioCue.createFromPairs;
     if (audioCue.snapConfidence !== (settings.audioCueSnapConfidence?.value ?? d.audioCueSnapConfidence ?? 0.8)) payload.audioCueSnapConfidence = audioCue.snapConfidence;
     if (audioCue.captureMinSeconds !== (settings.audioCueCaptureMinSeconds?.value ?? d.audioCueCaptureMinSeconds ?? 0.2)) payload.audioCueCaptureMinSeconds = audioCue.captureMinSeconds;

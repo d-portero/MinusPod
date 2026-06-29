@@ -3036,14 +3036,6 @@ paths:
                     unchanged. A per-template override may supersede this. Typical opt-in ~9-12.
                   minimum: 0
                   maximum: 24
-                audioCueRecurringWindowSeconds:
-                  type: number
-                  description: >-
-                    Probe-window length (seconds) for within-episode recurring cue suggestions (#350).
-                    Longer windows reject short common phrases (default 4.0). Cross-episode intro/outro
-                    detection is unaffected.
-                  minimum: 1
-                  maximum: 10
                 audioCueSnapConfidence:
                   type: number
                   description: Min cue confidence before a cue may move an ad edge (default 0.80).
@@ -6096,14 +6088,6 @@ components:
         audioCueFormantAttenDb:
           type: object
           description: Speech-formant-band attenuation in dB for voiceover-robust cue matching (#350). 0 = off (default).
-          properties:
-            value:
-              type: number
-            isDefault:
-              type: boolean
-        audioCueRecurringWindowSeconds:
-          type: object
-          description: Probe-window seconds for within-episode recurring cue suggestions (#350, default 4.0).
           properties:
             value:
               type: number

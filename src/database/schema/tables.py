@@ -330,9 +330,6 @@ CREATE TABLE IF NOT EXISTS audio_cue_templates (
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     created_by TEXT DEFAULT 'user',
-    -- Per-template voiceover-robust matching (#350): formant-band attenuation in
-    -- dB. NULL inherits the global audio_cue_formant_atten_db setting.
-    formant_atten_db REAL,
     FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_cue_templates_feed ON audio_cue_templates(podcast_id, enabled);
