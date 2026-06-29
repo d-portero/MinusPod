@@ -132,8 +132,13 @@ Detection, verification, and reviewer prompts use explicit placeholder substitut
 
 - `{sponsor_database}` - substituted at runtime with the dynamic sponsor list (the one that grows as new sponsors are detected). Available in the system, verification, review, and resurrect prompts. If you remove this placeholder from your customized prompt, no sponsor list is injected on that prompt.
 - `{max_boundary_shift_seconds}` - review prompt only. Substituted with the current `Max boundary shift` setting. The boundary cap is enforced in code regardless of whether the placeholder is in the prompt.
+- `{override}` - substituted with that pass's override text (see below). If a customized prompt has no `{override}` placeholder, the override is appended at the end instead.
 
 If you customized your system or verification prompt before this release, the upgrade automatically appends `{sponsor_database}` to your prompt so behavior is preserved. The migration is idempotent and runs once.
+
+### Per-pass prompt overrides
+
+Each pass (first, verification, reviewer, resurrect) has an optional **Override** field in Settings, empty by default. Whatever you put there is added to that pass at run time, so you can apply a tweak (for example, "keep this show's news roundup") without editing the large built-in prompt, which stays intact and resettable. The override is inserted at the pass's `{override}` placeholder if its prompt has one, otherwise appended under an "additional instructions" header. An empty override changes nothing, so the default prompts behave exactly as before until you fill one in.
 
 ### Audio Cue Detection
 

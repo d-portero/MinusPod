@@ -107,6 +107,7 @@ The cue type is a dropdown, not free text, so the model always sees a consistent
 - Ad-break start - snaps an ad's start only, and opens a span when cue-pair gap-filling is on.
 - Ad-break end - snaps an ad's end only, and closes a span.
 - Show intro / Show outro - the show's own open/close sound, not an ad. The model is told to ignore it as a boundary so it stops mis-reading an intro sting as a break.
+- Content transition (may or may not be an ad) - a recurring segment-break sound (intro, ad exit, topic change). Never cut on its own; the model is told a transition happens there without treating it as an ad boundary.
 
 Saved cues are listed with enable checkboxes; Change type swaps a cue's type in place. Test on episode runs every enabled cue against any episode and reports each cue's peak match score, which is the value to tune Template match score against in Settings. Export downloads a cue as a portable zip (a lossless WAV plus a manifest) to share with another install; Import loads one back. On a feed that belongs to a network, Promote to network applies a cue to every show on that network.
 
