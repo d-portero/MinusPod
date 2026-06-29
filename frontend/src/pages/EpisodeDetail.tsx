@@ -325,7 +325,7 @@ function EpisodeDetail() {
                         <div className="text-xs text-muted-foreground">Apply edits, no AI</div>
                       </button>
                     )}
-                    {episode.transcriptVttAvailable && (
+                    {episode.transcriptAvailable && (
                       <button
                         onClick={() => reprocessMutation.mutate('llm')}
                         className="w-full px-3 py-2 text-left text-sm hover:bg-accent border-t border-border"

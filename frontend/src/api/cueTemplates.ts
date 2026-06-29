@@ -18,7 +18,7 @@ export const CUE_TYPE_OPTIONS: { value: CueTemplateType; label: string }[] = [
   { value: 'ad_break_end', label: 'Ad-break end' },
   { value: 'show_intro', label: 'Show intro (not an ad)' },
   { value: 'show_outro', label: 'Show outro (not an ad)' },
-  { value: 'content_transition', label: 'Content transition (not an ad)' },
+  { value: 'content_transition', label: 'Content transition (may or may not be an ad)' },
 ];
 
 export function cueTypeLabel(cueType: CueTemplateType): string {

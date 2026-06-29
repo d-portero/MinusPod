@@ -887,8 +887,9 @@ function CueMarkModal({
                   onChange={(e) => setNonAdAckKey(e.target.checked ? cueKey : null)}
                 />
                 <span>
-                  This is show content (intro, outro, or transition), not an ad.
-                  It will be marked non-ad and never cut.
+                  {cueType === 'content_transition'
+                    ? 'This marks a content transition: it is never cut on its own, and may or may not sit next to an ad.'
+                    : 'This is show content (intro or outro), not an ad. It will be marked non-ad and never cut.'}
                 </span>
               </label>
             )}
