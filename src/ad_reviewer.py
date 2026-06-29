@@ -22,9 +22,7 @@ from llm_capabilities import PASS_REVIEWER_1, PASS_REVIEWER_2
 from llm_client import get_llm_max_retries, get_llm_timeout, is_rate_limit_error
 from utils.llm_call import call_llm_for_window
 from utils.llm_response import extract_json_ads_array
-from utils.prompt import (
-    format_sponsor_block, render_prompt, format_override_block, apply_override,
-)
+from utils.prompt import format_sponsor_block, render_prompt, render_with_override
 from utils.text import get_transcript_text_for_range
 
 
@@ -773,8 +771,7 @@ class AdReviewer:
 
     def _apply_pass_override(self, rendered: str, setting_key: str) -> str:
         """Append the user's per-pass override (empty by default -> no change)."""
-        return apply_override(
-            rendered, format_override_block(self._read_setting(setting_key) or ""))
+        return render_with_override(rendered, self._read_setting(setting_key))
 
     def _sponsor_list_or_empty(self) -> str:
         if not self.sponsor_service:

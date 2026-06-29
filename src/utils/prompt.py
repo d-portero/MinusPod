@@ -61,3 +61,12 @@ def apply_override(prompt: str, override_block: str) -> str:
     if '{override}' in prompt:
         return prompt.replace('{override}', override_block)
     return prompt + override_block if override_block else prompt
+
+
+def render_with_override(rendered: str, override: str) -> str:
+    """Apply an optional per-pass override to an already-rendered prompt.
+
+    Wraps the format + apply steps so each render site only supplies the override
+    text it fetched. Empty/None override is a no-op.
+    """
+    return apply_override(rendered, format_override_block(override or ''))

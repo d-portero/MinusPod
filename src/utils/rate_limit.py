@@ -182,7 +182,10 @@ def parse_google_daily_quota(body: Any) -> Optional[dict]:
     if not isinstance(err, dict):
         return None
     status = str(err.get("status") or "")
-    if "RESOURCE_EXHAUSTED" not in status and "RESOURCE_EXHAUSTED" not in str(body):
+    is_resource_exhausted = (
+        "RESOURCE_EXHAUSTED" in status or "RESOURCE_EXHAUSTED" in str(body)
+    )
+    if not is_resource_exhausted:
         return None
     message = str(err.get("message") or "")
 

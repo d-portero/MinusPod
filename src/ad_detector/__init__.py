@@ -20,9 +20,7 @@ from llm_client import (
 )
 from utils.language import get_pattern_language
 from utils.llm_call import call_llm_for_window
-from utils.prompt import (
-    format_sponsor_block, render_prompt, format_override_block, apply_override,
-)
+from utils.prompt import format_sponsor_block, render_prompt, render_with_override
 from utils.time import overlap_ratio
 
 from config import (
@@ -392,10 +390,10 @@ class AdDetector:
     def _apply_pass_override(self, rendered: str, setting_key: str) -> str:
         """Append the user's per-pass override (empty by default -> no change)."""
         try:
-            override = self.db.get_setting(setting_key) or ''
+            override = self.db.get_setting(setting_key)
         except Exception:
-            override = ''
-        return apply_override(rendered, format_override_block(override))
+            override = None
+        return render_with_override(rendered, override)
 
     def get_system_prompt(self) -> str:
         """Get system prompt from database or default, with dynamic sponsors substituted."""
