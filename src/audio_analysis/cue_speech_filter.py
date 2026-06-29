@@ -41,11 +41,12 @@ def speechiness_features(pcm, sample_rate=16000, *, lo_hz=300.0, hi_hz=3400.0):
     pcm = np.asarray(pcm, dtype=np.float32)
     if pcm.size < _N_FFT * 2:
         return 0.0, 0.0, 1.0
-    win = np.hanning(_N_FFT)
-    frames = np.array([pcm[i:i + _N_FFT] * win
-                       for i in range(0, pcm.size - _N_FFT, _HOP)])
-    if frames.size == 0:
-        return 0.0, 0.0, 1.0
+    # Strided frames (matches cue_features.compute_mfcc) -- avoids a per-frame
+    # Python list. The guard above guarantees at least one frame.
+    n_frames = 1 + (pcm.size - _N_FFT) // _HOP
+    idx = np.arange(_N_FFT)[None, :] + _HOP * np.arange(n_frames)[:, None]
+    win = np.hanning(_N_FFT).astype(np.float32)
+    frames = pcm[idx] * win
     spectra = np.abs(rfft(frames, axis=1)) ** 2
     total = spectra.sum() + 1e-12
     freqs = rfftfreq(_N_FFT, 1.0 / sample_rate)

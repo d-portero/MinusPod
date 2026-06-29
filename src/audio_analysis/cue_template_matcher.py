@@ -89,8 +89,13 @@ class AudioCueTemplateMatcher:
             # overrides the global setting; NULL inherits it.
             row_atten = row.get('formant_atten_db')
             eff_atten = float(row_atten) if row_atten is not None else float(formant_atten_db)
+            if eff_atten > 0 and not row.get('pcm_blob'):
+                logger.warning(
+                    "Cue template %s: formant attenuation requested but no stored "
+                    "PCM; matching with the un-weighted MFCC", row.get('id'))
+                eff_atten = 0.0
             try:
-                if eff_atten > 0 and row.get('pcm_blob'):
+                if eff_atten > 0:
                     # Re-derive the MFCC from the stored PCM under the profile so
                     # the template and the target episode share the same weighting;
                     # the stored mfcc_blob was computed at 0 dB and would not match.
@@ -99,12 +104,6 @@ class AudioCueTemplateMatcher:
                         formant_atten_db=eff_atten,
                         formant_lo_hz=float(formant_lo_hz), formant_hi_hz=float(formant_hi_hz))
                 else:
-                    if eff_atten > 0:
-                        logger.warning(
-                            "Cue template %s: formant attenuation requested but no "
-                            "stored PCM; matching with the un-weighted MFCC",
-                            row.get('id'))
-                        eff_atten = 0.0
                     mfcc = deserialize_mfcc(row['mfcc_blob'], n_coeffs)
             except (ValueError, KeyError) as e:
                 logger.warning(
