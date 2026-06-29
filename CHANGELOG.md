@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.29.1] - 2026-06-29
+
+### Fixed
+
+- Numeric settings fields can be cleared and retyped. They were coerced on every keystroke, so you could not clear a field, and typing into a 0 produced "012" or "120" (worst on mobile). The Audio Cue Detection, Ad Reviewer, Transcription, and global-defaults number fields now use a shared input that allows clearing, accepts in-progress typing, and clamps on blur.
+- The "Create ads from cue pairs" toggle (Audio Cue Detection) now uses a one-line label like the other toggles and only appears when audio cue detection is enabled, since cue-pair synthesis needs the detector running.
+
 ## [2.29.0] - 2026-06-29
 
 ### Added
