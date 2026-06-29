@@ -117,15 +117,20 @@ def parse_groq_rate_limit_body(body: Any) -> Optional[dict]:
 # Google/Gemini RPC 429 bodies (also seen via OpenRouter's OpenAI-compatible path)
 # put the recommended wait in the body, not the Retry-After header: a RetryInfo
 # detail (retryDelay: "4s") and/or a "Please retry in 4.2s" hint in the message.
-_GOOGLE_RETRY_IN_RE = re.compile(r"retry in\s+([\d.]+)\s*s", re.IGNORECASE)
-_DURATION_RE = re.compile(r"^([\d.]+)\s*s$", re.IGNORECASE)
+# Float patterns are anchored to a real number (\d+ optional .\d+) so a malformed
+# token like "1.2.3" or a lone "." cannot reach float() and raise ValueError.
+_GOOGLE_RETRY_IN_RE = re.compile(r"retry in\s+(\d+(?:\.\d+)?)\s*s", re.IGNORECASE)
+_DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*s$", re.IGNORECASE)
 
 
 def _coerce_google_error(body: Any) -> Optional[dict]:
     """Normalize a Google 429 body to its inner ``error`` dict (or the payload).
 
     Accepts a dict, a list wrapping it, or a JSON string. Plain non-JSON strings
-    return None so callers can fall back to a regex over ``str(body)``.
+    return None so callers can fall back to a regex over ``str(body)``. When the
+    error is proxied through OpenRouter, the upstream Google error (with its
+    ``details``/``status``) is a JSON string under ``error.metadata.raw``; descend
+    into it so the daily-quota / retry-delay parsers see the real fields.
     """
     payload = body
     if isinstance(payload, str):
@@ -135,10 +140,22 @@ def _coerce_google_error(body: Any) -> Optional[dict]:
             return None
     if isinstance(payload, list):
         payload = payload[0] if payload else None
-    if isinstance(payload, dict):
-        err = payload.get("error")
-        return err if isinstance(err, dict) else payload
-    return None
+    if not isinstance(payload, dict):
+        return None
+    err = payload.get("error")
+    err = err if isinstance(err, dict) else payload
+    if "details" not in err and "status" not in err:
+        meta = err.get("metadata")
+        raw = meta.get("raw") if isinstance(meta, dict) else None
+        if isinstance(raw, str):
+            try:
+                inner = json.loads(raw)
+            except (ValueError, TypeError):
+                inner = None
+            if isinstance(inner, dict):
+                inner_err = inner.get("error")
+                return inner_err if isinstance(inner_err, dict) else inner
+    return err
 
 
 def parse_google_retry_delay(body: Any, *, max_seconds: float = 300.0) -> Optional[float]:
@@ -202,13 +219,22 @@ def parse_google_daily_quota(body: Any) -> Optional[dict]:
                     limit = int(v["quotaValue"]) if v.get("quotaValue") is not None else None
                 except (TypeError, ValueError):
                     limit = None
-                model = (v.get("quotaDimensions") or {}).get("model")
+                dims = v.get("quotaDimensions")
+                model = dims.get("model") if isinstance(dims, dict) else None
                 break
         if quota_id:
             break
 
-    if quota_id is None and "per day" not in message.lower():
-        return None
+    # Authoritative signal is a PerDay quotaId violation. Fall back to the message
+    # only when it names a daily limit and does NOT also name a per-minute one --
+    # Google free-tier messages sometimes enumerate both, and misreading a
+    # recoverable per-minute throttle as daily would fail the episode for good.
+    if quota_id is None:
+        msg = message.lower()
+        mentions_daily = "per day" in msg or "perday" in msg or "per-day" in msg
+        mentions_minute = "per minute" in msg or "perminute" in msg or "per-minute" in msg
+        if not (mentions_daily and not mentions_minute):
+            return None
     if limit is None:
         m = re.search(r"limit:\s*(\d+)", message)
         if m:

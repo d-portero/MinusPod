@@ -5,9 +5,12 @@ Two distinct cases:
 - free-tier daily quota exhaustion (RESOURCE_EXHAUSTED, a PerDay quota) cannot
   recover within the run -> fail fast, and never leak the raw payload to the UI.
 """
+import json
+
 from utils.rate_limit import parse_google_retry_delay, parse_google_daily_quota
 from llm_client import (
     classify_daily_quota_exhaustion, extract_retry_after, is_rate_limit_error,
+    StructuralRateLimitError,
 )
 from ad_reviewer import _review_failure_reason
 
@@ -169,3 +172,48 @@ class TestRetryLoopDailyQuotaFastFail:
         assert response is None and last_error is not None
         assert calls["n"] == 1  # no long-backoff retries on a dead daily quota
         assert "RESOURCE_EXHAUSTED" not in str(last_error)
+
+
+class TestCodeReviewRegressions:
+    """Regressions for the #435 code-review findings."""
+
+    def test_malformed_retry_delay_does_not_crash(self):
+        # A non-float token in the hint must yield None, not raise ValueError.
+        assert parse_google_retry_delay("Please retry in 1.2.3s") is None
+        assert parse_google_retry_delay("retry in .s") is None
+        assert parse_google_retry_delay("Please retry in 4.2s") == 4.2
+
+    def test_openrouter_nested_metadata_raw_daily_quota(self):
+        # OpenRouter nests the upstream Google error as a JSON string in
+        # error.metadata.raw; daily quota must still be detected.
+        raw = json.dumps({"error": {"code": 429, "status": "RESOURCE_EXHAUSTED",
+            "details": [{"@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                "violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+                                "quotaValue": "50"}]}]}})
+        body = {"error": {"message": "Provider returned error", "code": 429,
+                          "metadata": {"raw": raw}}}
+        result = parse_google_daily_quota(body)
+        assert result is not None and result["limit"] == 50
+
+    def test_non_dict_quota_dimensions_does_not_crash(self):
+        body = {"error": {"status": "RESOURCE_EXHAUSTED", "details": [
+            {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [
+                {"quotaId": "GenPerDay", "quotaValue": "50",
+                 "quotaDimensions": ["model", "gemini"]}]}]}}
+        result = parse_google_daily_quota(body)
+        assert result is not None and result["model"] is None
+
+    def test_per_minute_message_naming_per_day_is_not_daily(self):
+        # A per-minute 429 whose message also enumerates a per-day cap must stay
+        # retryable, not be misclassified as daily exhaustion.
+        body = {"error": {"status": "RESOURCE_EXHAUSTED",
+                          "message": "Quota exceeded: 10 per minute (also 50 per day)"}}
+        assert parse_google_daily_quota(body) is None
+
+    def test_structural_error_surfaces_actionable_text(self):
+        err = StructuralRateLimitError(
+            "openrouter free-tier daily quota (limit 50) exhausted; retry tomorrow, "
+            "raise the tier, or switch provider.")
+        reason = _review_failure_reason(err)
+        assert "daily quota" in reason and "retry tomorrow" in reason
+        assert reason.startswith("Review unavailable:")

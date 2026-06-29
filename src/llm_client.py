@@ -1531,5 +1531,8 @@ def extract_retry_after(error: Exception, *, max_seconds: float = 300.0) -> Opti
         if parsed is not None:
             return parsed
     # No usable header: Google/Gemini (incl. via OpenRouter) put the recommended
-    # wait in the body (RetryInfo.retryDelay / "retry in Ns").
-    return parse_google_retry_delay(extract_error_body(error), max_seconds=max_seconds)
+    # wait in the body (RetryInfo.retryDelay / "retry in Ns"). Fall back to the
+    # exception's str when no body is reachable but its text carries the hint
+    # (mirrors the classify_* helpers' `or str(error)` guard).
+    return parse_google_retry_delay(
+        extract_error_body(error) or str(error), max_seconds=max_seconds)

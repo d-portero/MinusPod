@@ -39,34 +39,17 @@ def format_sponsor_block(sponsor_list: str) -> str:
 OVERRIDE_HEADER = "\n\nADDITIONAL INSTRUCTIONS (these take precedence):\n"
 
 
-def format_override_block(override: str) -> str:
-    """Wrap a non-empty per-pass override with its header.
+def apply_override(prompt: str, override: str) -> str:
+    """Inject an optional per-pass override into an already-rendered prompt.
 
-    Empty (the default) returns an empty string, so the built-in default prompt
-    renders byte-identically to today -- an override only adds content when the
-    user supplies one for that pass.
+    Empty/None override leaves the prompt unchanged, so the built-in default
+    prompts render byte-identically to today. When the prompt contains an
+    ``{override}`` placeholder, the user's text is inserted there verbatim -- they
+    control its placement and the wording around it. Otherwise the override is
+    appended under a precedence header.
     """
     if not override or not override.strip():
-        return ""
-    return OVERRIDE_HEADER + override
-
-
-def apply_override(prompt: str, override_block: str) -> str:
-    """Inject a per-pass override block into a prompt.
-
-    If the prompt contains an ``{override}`` placeholder (a customized prompt that
-    opted to control placement), substitute it there; otherwise append the block,
-    which leaves the unmodified built-in defaults intact. An empty block is a no-op.
-    """
+        return prompt.replace('{override}', '') if '{override}' in prompt else prompt
     if '{override}' in prompt:
-        return prompt.replace('{override}', override_block)
-    return prompt + override_block if override_block else prompt
-
-
-def render_with_override(rendered: str, override: str) -> str:
-    """Apply an optional per-pass override to an already-rendered prompt.
-
-    Wraps the format + apply steps so each render site only supplies the override
-    text it fetched. Empty/None override is a no-op.
-    """
-    return apply_override(rendered, format_override_block(override or ''))
+        return prompt.replace('{override}', override)
+    return prompt + OVERRIDE_HEADER + override

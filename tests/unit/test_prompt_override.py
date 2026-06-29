@@ -1,47 +1,38 @@
 """Tests for per-pass prompt overrides (issue #429).
 
-An empty override must leave a prompt byte-identical (the working defaults are
-untouched); a set override is appended, or substituted at an {override}
-placeholder when a customized prompt provides one.
+An empty override leaves a prompt byte-identical (the working defaults are
+untouched); a set override is appended under a header, or inserted verbatim at an
+{override} placeholder when a customized prompt provides one.
 """
-from utils.prompt import (
-    format_override_block, apply_override, OVERRIDE_HEADER,
-)
-
-
-class TestFormatOverrideBlock:
-    def test_empty_returns_empty(self):
-        assert format_override_block("") == ""
-        assert format_override_block(None) == ""
-        assert format_override_block("   \n  ") == ""
-
-    def test_set_wraps_with_header(self):
-        assert format_override_block("Keep the news roundup.") == \
-            OVERRIDE_HEADER + "Keep the news roundup."
+from utils.prompt import apply_override, OVERRIDE_HEADER
 
 
 class TestApplyOverride:
-    def test_empty_block_is_byte_identical(self):
+    def test_empty_is_byte_identical(self):
         prompt = "Analyze this transcript.\n\nOUTPUT FORMAT: ...{sponsor_database}"
         assert apply_override(prompt, "") == prompt
+        assert apply_override(prompt, None) == prompt
+        assert apply_override(prompt, "   \n ") == prompt
 
-    def test_appends_when_no_placeholder(self):
+    def test_appends_with_header_when_no_placeholder(self):
         prompt = "Analyze this transcript."
-        block = format_override_block("Be stricter on intros.")
-        assert apply_override(prompt, block) == prompt + block
+        assert apply_override(prompt, "Be stricter on intros.") == \
+            prompt + OVERRIDE_HEADER + "Be stricter on intros."
 
-    def test_substitutes_at_placeholder(self):
+    def test_inserts_verbatim_at_placeholder(self):
+        # At an explicit placeholder the user's text goes in raw -- no header that
+        # could countermand the wording they put around {override}.
         prompt = "Rules.\n{override}\nOutput: []"
-        block = format_override_block("Keep cooking-segment sponsors.")
-        out = apply_override(prompt, block)
-        assert "{override}" not in out
-        assert block.strip() in out
-        assert out.startswith("Rules.")
-        assert out.endswith("Output: []")
+        out = apply_override(prompt, "Keep cooking-segment sponsors.")
+        assert out == "Rules.\nKeep cooking-segment sponsors.\nOutput: []"
+        assert OVERRIDE_HEADER not in out
+
+    def test_empty_strips_leftover_placeholder(self):
+        # A customized prompt with {override} but no override set must not ship the
+        # literal placeholder to the model.
+        prompt = "Rules.\n{override}\nOutput: []"
+        assert apply_override(prompt, "") == "Rules.\n\nOutput: []"
 
     def test_default_prompt_unchanged_end_to_end(self):
-        # Mirrors the runtime: render the (untouched) default, then apply an empty
-        # override -> identical to the default. Proves "no behavior change".
         from utils.constants import DEFAULT_SYSTEM_PROMPT
-        rendered = DEFAULT_SYSTEM_PROMPT  # sponsors substitution is orthogonal
-        assert apply_override(rendered, format_override_block("")) == rendered
+        assert apply_override(DEFAULT_SYSTEM_PROMPT, "") == DEFAULT_SYSTEM_PROMPT

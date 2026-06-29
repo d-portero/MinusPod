@@ -14,13 +14,14 @@ from typing import List, Dict, Optional, NamedTuple
 from cancel import _check_cancel
 from llm_client import (
     get_llm_client, get_api_key, LLMClient,
-    is_retryable_error, is_not_found_error,
+    is_retryable_error, is_not_found_error, is_rate_limit_error,
     get_llm_timeout, get_llm_max_retries,
     get_effective_provider, model_matches_provider,
+    StructuralRateLimitError,
 )
 from utils.language import get_pattern_language
 from utils.llm_call import call_llm_for_window
-from utils.prompt import format_sponsor_block, render_prompt, render_with_override
+from utils.prompt import format_sponsor_block, render_prompt, apply_override
 from utils.time import overlap_ratio
 
 from config import (
@@ -196,7 +197,14 @@ def _all_windows_failed_response(stage: str, num_windows: int, last_error, model
     if last_err_status:
         parts.append(f", status={last_err_status}")
     if last_error:
-        parts.append(f": {last_error}")
+        if isinstance(last_error, StructuralRateLimitError):
+            # Our own sanitized, actionable text (per-minute cap / daily quota).
+            parts.append(f": {last_error}")
+        elif is_rate_limit_error(last_error):
+            # Hide the raw provider 429 payload from the episode error message (#435).
+            parts.append(": provider rate limit reached")
+        else:
+            parts.append(f": {last_error}")
     parts.append(")")
     not_found_hint = _model_not_found_hint(last_error, model)
     if not_found_hint:
@@ -393,7 +401,7 @@ class AdDetector:
             override = self.db.get_setting(setting_key)
         except Exception:
             override = None
-        return render_with_override(rendered, override)
+        return apply_override(rendered, override)
 
     def get_system_prompt(self) -> str:
         """Get system prompt from database or default, with dynamic sponsors substituted."""
@@ -415,8 +423,8 @@ class AdDetector:
         prompt = None
         try:
             prompt = self.db.get_setting('verification_prompt')
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Could not load verification prompt from DB: {e}")
         if not prompt:
             from database import DEFAULT_VERIFICATION_PROMPT
             prompt = DEFAULT_VERIFICATION_PROMPT
