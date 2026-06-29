@@ -42,8 +42,16 @@ N_COEFFS = 13  # excludes c0
 PRE_EMPHASIS = 0.97
 FFT_TIMEOUT_S = 120
 
+# Speech-formant band defaults for the optional voiceover-robust matching (#350):
+# attenuating the mel bands centered in [FORMANT_LO_HZ, FORMANT_HI_HZ] down-weights
+# a varying voiceover so a cue matches on its constant music bed. Off by default.
+FORMANT_LO_HZ = 800.0
+FORMANT_HI_HZ = 3400.0
+
 # Mel filterbank cache keyed by (sample_rate, n_fft, n_mels).
 _MEL_FILTERBANK_CACHE: dict = {}
+# Formant-band weight-vector cache keyed by (sample_rate, n_fft, n_mels, lo, hi, atten_db).
+_FORMANT_WEIGHT_CACHE: dict = {}
 
 
 def _hz_to_mel(hz: np.ndarray) -> np.ndarray:
@@ -84,12 +92,57 @@ def _mel_filterbank(sample_rate: int, n_fft: int, n_mels: int) -> np.ndarray:
     return fb
 
 
+def _formant_band_weights(sample_rate: int, n_fft: int, n_mels: int,
+                          lo_hz: float, hi_hz: float, atten_db: float) -> np.ndarray:
+    """Per-mel-band multiplicative weights that attenuate the ``[lo_hz, hi_hz]`` band.
+
+    Returns shape ``(n_mels,)``: 1.0 for bands centered outside the band,
+    ``10**(-atten_db/20)`` inside, with a raised-cosine ramp (half-octave) on each
+    edge so there is no hard notch. ``atten_db <= 0`` returns an all-ones identity
+    vector so callers can short-circuit. Only bands whose CENTER falls in the band
+    are touched, so sub-band beds and high stings are untouched at any depth.
+    """
+    if not atten_db or atten_db <= 0:
+        return np.ones(n_mels, dtype=np.float32)
+    key = (sample_rate, n_fft, n_mels, round(lo_hz, 3), round(hi_hz, 3), round(atten_db, 3))
+    cached = _FORMANT_WEIGHT_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    low_mel = _hz_to_mel(np.array([0.0]))[0]
+    high_mel = _hz_to_mel(np.array([sample_rate / 2.0]))[0]
+    centers = _mel_to_hz(np.linspace(low_mel, high_mel, n_mels + 2))[1:n_mels + 1]
+    atten = 10.0 ** (-atten_db / 20.0)
+    ramp = np.sqrt(2.0)   # half-octave transition on each edge
+    w = np.ones(n_mels, dtype=np.float32)
+    for i, c in enumerate(centers):
+        if lo_hz <= c <= hi_hz:
+            w[i] = atten
+        elif lo_hz / ramp <= c < lo_hz:
+            t = (c - lo_hz / ramp) / (lo_hz - lo_hz / ramp)
+            w[i] = 1.0 + (atten - 1.0) * (0.5 - 0.5 * np.cos(np.pi * t))
+        elif hi_hz < c <= hi_hz * ramp:
+            t = (c - hi_hz) / (hi_hz * ramp - hi_hz)
+            w[i] = atten + (1.0 - atten) * (0.5 - 0.5 * np.cos(np.pi * t))
+    w = w.astype(np.float32)
+    _FORMANT_WEIGHT_CACHE[key] = w
+    return w
+
+
 def compute_mfcc(samples: np.ndarray, sample_rate: int = SAMPLE_RATE_HZ,
-                 n_coeffs: int = N_COEFFS) -> np.ndarray:
+                 n_coeffs: int = N_COEFFS, formant_atten_db: float = 0.0,
+                 formant_lo_hz: float = FORMANT_LO_HZ,
+                 formant_hi_hz: float = FORMANT_HI_HZ) -> np.ndarray:
     """Compute MFCC matrix for a mono float32 PCM array in [-1, 1].
 
     Returns shape ``(n_frames, n_coeffs)`` float32. Returns an empty
     ``(0, n_coeffs)`` array when the input is too short for even one frame.
+
+    ``formant_atten_db > 0`` multiplicatively down-weights the log-mel bands
+    centered in ``[formant_lo_hz, formant_hi_hz]`` before the DCT, reducing the
+    speech-formant band's influence on the (zero-meaned) ZNCC match so a cue keys
+    on its constant music bed (#350). The default ``0.0`` is a no-op, leaving the
+    output byte-identical to the un-weighted MFCC.
     """
     if samples.ndim != 1:
         samples = samples.reshape(-1)
@@ -128,6 +181,15 @@ def compute_mfcc(samples: np.ndarray, sample_rate: int = SAMPLE_RATE_HZ,
     # Floor to avoid log(0).
     mel_energy = np.maximum(mel_energy, 1e-10)
     log_mel = np.log(mel_energy)
+
+    # Optional voiceover-robust weighting (#350): down-weight the formant band in
+    # the log domain (ZNCC zero-means each coefficient, so a linear/additive scale
+    # would cancel -- only a multiplicative log-mel weight reduces a band's
+    # influence). No-op when formant_atten_db <= 0.
+    if formant_atten_db and formant_atten_db > 0:
+        weights = _formant_band_weights(
+            sample_rate, n_fft, N_MELS, formant_lo_hz, formant_hi_hz, formant_atten_db)
+        log_mel = log_mel * weights[None, :]
 
     # DCT-II orthonormal; drop c0 (energy), keep next n_coeffs.
     cepstrum = dct(log_mel, type=2, axis=1, norm='ortho')

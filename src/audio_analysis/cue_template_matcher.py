@@ -30,9 +30,12 @@ from .base import AudioSegmentSignal, SignalType
 from .cue_features import (
     FRAME_HOP_MS,
     SAMPLE_RATE_HZ,
+    FORMANT_LO_HZ,
+    FORMANT_HI_HZ,
     compute_mfcc,
     decode_pcm_window,
     deserialize_mfcc,
+    int16_bytes_to_pcm,
 )
 from utils.audio import get_audio_duration
 
@@ -60,6 +63,9 @@ class _Template:
     n_coeffs: int
     cue_type: str
     role: str
+    formant_atten_db: float = 0.0       # effective formant-band attenuation (#350)
+    formant_lo_hz: float = FORMANT_LO_HZ
+    formant_hi_hz: float = FORMANT_HI_HZ
 
 
 class AudioCueTemplateMatcher:
@@ -70,13 +76,36 @@ class AudioCueTemplateMatcher:
         templates: List[Dict],
         score_threshold: float = DEFAULT_MATCH_SCORE,
         max_matches_per_template: int = MAX_MATCHES_PER_TEMPLATE,
+        formant_atten_db: float = 0.0,
+        formant_lo_hz: float = FORMANT_LO_HZ,
+        formant_hi_hz: float = FORMANT_HI_HZ,
     ):
         self.score_threshold = score_threshold
         self.max_matches_per_template = max_matches_per_template
         self._templates: List[_Template] = []
         for row in templates:
+            n_coeffs = int(row['n_coeffs'])
+            # Effective formant profile (#350): a non-NULL per-template column
+            # overrides the global setting; NULL inherits it.
+            row_atten = row.get('formant_atten_db')
+            eff_atten = float(row_atten) if row_atten is not None else float(formant_atten_db)
             try:
-                mfcc = deserialize_mfcc(row['mfcc_blob'], int(row['n_coeffs']))
+                if eff_atten > 0 and row.get('pcm_blob'):
+                    # Re-derive the MFCC from the stored PCM under the profile so
+                    # the template and the target episode share the same weighting;
+                    # the stored mfcc_blob was computed at 0 dB and would not match.
+                    mfcc = compute_mfcc(
+                        int16_bytes_to_pcm(row['pcm_blob']), n_coeffs=n_coeffs,
+                        formant_atten_db=eff_atten,
+                        formant_lo_hz=float(formant_lo_hz), formant_hi_hz=float(formant_hi_hz))
+                else:
+                    if eff_atten > 0:
+                        logger.warning(
+                            "Cue template %s: formant attenuation requested but no "
+                            "stored PCM; matching with the un-weighted MFCC",
+                            row.get('id'))
+                        eff_atten = 0.0
+                    mfcc = deserialize_mfcc(row['mfcc_blob'], n_coeffs)
             except (ValueError, KeyError) as e:
                 logger.warning(
                     f"Skipping cue template {row.get('id')}: bad mfcc blob ({e})"
@@ -94,10 +123,20 @@ class AudioCueTemplateMatcher:
                 label=row.get('label') or f"template-{row['id']}",
                 mfcc=mfcc,
                 duration_s=float(row['duration_s']),
-                n_coeffs=int(row['n_coeffs']),
+                n_coeffs=n_coeffs,
                 cue_type=cue_type,
                 role=audio_cue_type_role(cue_type),
+                formant_atten_db=eff_atten,
+                formant_lo_hz=float(formant_lo_hz),
+                formant_hi_hz=float(formant_hi_hz),
             ))
+        # Group templates by formant profile so the episode MFCC is computed once
+        # per distinct profile per chunk. Default (all 0 dB) => a single profile =>
+        # one pass per chunk, identical to the un-weighted path.
+        self._profiles: Dict[tuple, List[_Template]] = {}
+        for t in self._templates:
+            self._profiles.setdefault(
+                (t.formant_atten_db, t.formant_lo_hz, t.formant_hi_hz), []).append(t)
 
     @property
     def is_usable(self) -> bool:
@@ -159,12 +198,16 @@ class AudioCueTemplateMatcher:
             except RuntimeError as e:
                 logger.warning(f"Cue chunk decode failed at {chunk_start:.1f}s: {e}")
                 break
-            chunk_mfcc = compute_mfcc(pcm)
-            if chunk_mfcc.shape[0]:
-                self._scan_chunk(
-                    chunk_mfcc, chunk_start,
-                    per_template_matches, per_template_peak_score,
-                )
+            # One MFCC per distinct formant profile (usually exactly one).
+            for (atten, lo, hi), tpls in self._profiles.items():
+                chunk_mfcc = compute_mfcc(
+                    pcm, formant_atten_db=atten, formant_lo_hz=lo, formant_hi_hz=hi)
+                if chunk_mfcc.shape[0]:
+                    self._scan_chunk(
+                        chunk_mfcc, chunk_start,
+                        per_template_matches, per_template_peak_score,
+                        templates=tpls,
+                    )
 
             if chunk_end >= duration:
                 break
@@ -224,9 +267,10 @@ class AudioCueTemplateMatcher:
         chunk_offset_s: float,
         per_template_matches: Dict[int, List[AudioSegmentSignal]],
         per_template_peak_score: Dict[int, float],
+        templates: List[_Template] = None,
     ) -> None:
         hop_s = FRAME_HOP_MS / 1000.0
-        for tpl in self._templates:
+        for tpl in (templates if templates is not None else self._templates):
             if tpl.mfcc.shape[1] != chunk_mfcc.shape[1]:
                 logger.warning(
                     f"Template {tpl.template_id} n_coeffs={tpl.mfcc.shape[1]} "

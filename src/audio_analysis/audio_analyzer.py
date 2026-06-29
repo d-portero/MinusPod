@@ -139,8 +139,11 @@ class AudioAnalyzer:
                 score = self.db.get_setting_float(
                     'audio_cue_template_score', DEFAULT_MATCH_SCORE,
                 )
+                from config import AUDIO_CUE_FORMANT_ATTEN_DB
                 matcher = AudioCueTemplateMatcher(
                     templates=templates, score_threshold=score,
+                    formant_atten_db=self.db.get_setting_float(
+                        'audio_cue_formant_atten_db', AUDIO_CUE_FORMANT_ATTEN_DB),
                 )
                 if matcher.is_usable:
                     logger.info(

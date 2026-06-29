@@ -53,6 +53,7 @@ from config import (
     AUDIO_CUE_XEP_MIN_DURATION, AUDIO_CUE_XEP_MAX_DURATION,
     AUDIO_CUE_XEP_MAX_PER_ZONE, AUDIO_CUE_XEP_SIMILARITY,
     AUDIO_CUE_RECURRENCE_SIMILARITY, AUDIO_CUE_RECURRENCE_MIN_COUNT,
+    AUDIO_CUE_FORMANT_ATTEN_DB,
     AUDIO_CUE_CANDIDATE_SCAN_STALE_SECONDS,
     AUDIO_CUE_TYPES, AUDIO_CUE_TYPE_DEFAULT, AUDIO_CUE_TYPE_SHOW_INTRO,
     AUDIO_CUE_ROLE_NON_AD, audio_cue_type_role,
@@ -354,6 +355,8 @@ def cue_scan_episode(slug, episode_id):
         score = db.get_setting_float('audio_cue_template_score', DEFAULT_MATCH_SCORE)
     matcher = AudioCueTemplateMatcher(
         templates=templates, score_threshold=score,
+        formant_atten_db=db.get_setting_float(
+            'audio_cue_formant_atten_db', AUDIO_CUE_FORMANT_ATTEN_DB),
     )
     if not matcher.is_usable:
         return error_response('templates could not be loaded', 500)
@@ -427,6 +430,8 @@ def preview_cue_template(slug, episode_id):
     score = db.get_setting_float('audio_cue_template_score', DEFAULT_MATCH_SCORE)
     matcher = AudioCueTemplateMatcher(
         templates=[template], score_threshold=score,
+        formant_atten_db=db.get_setting_float(
+            'audio_cue_formant_atten_db', AUDIO_CUE_FORMANT_ATTEN_DB),
     )
     if not matcher.is_usable:
         return error_response('template could not be loaded', 500)
@@ -811,7 +816,8 @@ def _run_cue_candidate_scan(podcast_id, episode_id, slug, audio_path,
                 raise RuntimeError(f'fingerprint decode failed for {audio_path}')
         recurring = fp.discover_recurring_spots(
             audio_path, similarity=similarity, min_count=min_count,
-            window_seconds=AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS,
+            window_seconds=db.get_setting_float(
+                'audio_cue_fp_recurring_window_seconds', AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS),
             target_fingerprint=target_fp)
         # Drop within-episode candidates that are just common spoken phrases (#350);
         # the cross-episode intro/outro pass below is exempt (intros can be spoken).

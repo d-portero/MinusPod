@@ -191,6 +191,12 @@ AUDIO_CUE_ONSET_LAG_SECONDS = 0.2    # ebur128 momentary loudness integrates ove
 # dip below 0.85 with background beds) against false positives (non-cue audio
 # sits near 0.0). Tuneable via the audio_cue_template_score DB setting.
 AUDIO_CUE_TEMPLATE_SCORE = 0.75
+# Voiceover-robust matching (#350): global formant-band (800-3400 Hz) attenuation
+# in dB applied to saved-template matching so a cue keys on its constant music bed
+# despite a varying voiceover. 0.0 = off (default; existing/ding/full-spectrum cues
+# unchanged). A per-template formant_atten_db column overrides this. ~9-12 dB is a
+# typical opt-in for a music-bed cue. DB-settable via audio_cue_formant_atten_db.
+AUDIO_CUE_FORMANT_ATTEN_DB = 0.0
 
 # Cue boundary snap + cue-pair synthesis tunables (#350). All DB-settable so a
 # show with a noisy cue or unusual break lengths can be tuned without a code

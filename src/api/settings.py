@@ -117,6 +117,7 @@ def get_settings():
         AUDIO_CUE_FREQ_MIN_HZ, AUDIO_CUE_FREQ_MAX_HZ,
         AUDIO_CUE_PROMINENCE_DB, AUDIO_CUE_MIN_CONFIDENCE,
         AUDIO_CUE_TEMPLATE_SCORE, AUDIO_CUE_SNAP_CONFIDENCE,
+        AUDIO_CUE_FORMANT_ATTEN_DB, AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS,
         AUDIO_CUE_CAPTURE_MIN_SECONDS, AUDIO_CUE_CAPTURE_MAX_SECONDS,
         AUDIO_CUE_CAPTURE_MAX_INTRO_SECONDS, AUDIO_CUE_CAPTURE_MAX_OUTRO_SECONDS,
         AUDIO_CUE_PAIR_CONFIDENCE, AUDIO_CUE_PAIR_MIN_BREAK_SECONDS,
@@ -335,6 +336,8 @@ def get_settings():
     audio_cue_prominence = _cue_num('audio_cue_prominence_db', AUDIO_CUE_PROMINENCE_DB)
     audio_cue_min_conf = _cue_num('audio_cue_min_confidence', AUDIO_CUE_MIN_CONFIDENCE)
     audio_cue_template_score = _cue_num('audio_cue_template_score', AUDIO_CUE_TEMPLATE_SCORE)
+    audio_cue_formant_atten = _cue_num('audio_cue_formant_atten_db', AUDIO_CUE_FORMANT_ATTEN_DB)
+    audio_cue_recurring_window = _cue_num('audio_cue_fp_recurring_window_seconds', AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS)
     audio_cue_snap_conf = _cue_num('audio_cue_snap_confidence', AUDIO_CUE_SNAP_CONFIDENCE)
     audio_cue_capture_min = _cue_num('audio_cue_capture_min_seconds', AUDIO_CUE_CAPTURE_MIN_SECONDS)
     audio_cue_capture_max = _cue_num('audio_cue_capture_max_seconds', AUDIO_CUE_CAPTURE_MAX_SECONDS)
@@ -392,6 +395,8 @@ def get_settings():
         'audioCueMinConfidence': _sv('audio_cue_min_confidence', audio_cue_min_conf),
         'audioCueCreateFromPairs': _sv('audio_cue_create_from_pairs', audio_cue_create_from_pairs),
         'audioCueTemplateScore': _sv('audio_cue_template_score', audio_cue_template_score),
+        'audioCueFormantAttenDb': _sv('audio_cue_formant_atten_db', audio_cue_formant_atten),
+        'audioCueRecurringWindowSeconds': _sv('audio_cue_fp_recurring_window_seconds', audio_cue_recurring_window),
         'audioCueSnapConfidence': _sv('audio_cue_snap_confidence', audio_cue_snap_conf),
         'audioCueCaptureMinSeconds': _sv('audio_cue_capture_min_seconds', audio_cue_capture_min),
         'audioCueCaptureMaxSeconds': _sv('audio_cue_capture_max_seconds', audio_cue_capture_max),
@@ -457,6 +462,8 @@ def get_settings():
             'audioCueMinConfidence': AUDIO_CUE_MIN_CONFIDENCE,
             'audioCueCreateFromPairs': False,
             'audioCueTemplateScore': AUDIO_CUE_TEMPLATE_SCORE,
+            'audioCueFormantAttenDb': AUDIO_CUE_FORMANT_ATTEN_DB,
+            'audioCueRecurringWindowSeconds': AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS,
             'audioCueSnapConfidence': AUDIO_CUE_SNAP_CONFIDENCE,
             'audioCueCaptureMinSeconds': AUDIO_CUE_CAPTURE_MIN_SECONDS,
             'audioCueCaptureMaxSeconds': AUDIO_CUE_CAPTURE_MAX_SECONDS,
@@ -982,6 +989,8 @@ def _apply_audio_cue_fields(db, data):
         ('audioCueProminenceDb', 'audio_cue_prominence_db', 1.0, 40.0),
         ('audioCueMinConfidence', 'audio_cue_min_confidence', 0.0, 1.0),
         ('audioCueTemplateScore', 'audio_cue_template_score', 0.0, 0.99),
+        ('audioCueFormantAttenDb', 'audio_cue_formant_atten_db', 0.0, 24.0),
+        ('audioCueRecurringWindowSeconds', 'audio_cue_fp_recurring_window_seconds', 1.0, 10.0),
         ('audioCueSnapConfidence', 'audio_cue_snap_confidence', 0.0, 1.0),
         ('audioCueCaptureMinSeconds', 'audio_cue_capture_min_seconds', 0.05, 10.0),
         ('audioCueCaptureMaxSeconds', 'audio_cue_capture_max_seconds', 0.05, 30.0),
@@ -1219,6 +1228,8 @@ def reset_ad_detection_settings():
     db.reset_setting('audio_cue_prominence_db')
     db.reset_setting('audio_cue_min_confidence')
     db.reset_setting('audio_cue_template_score')
+    db.reset_setting('audio_cue_formant_atten_db')
+    db.reset_setting('audio_cue_fp_recurring_window_seconds')
     db.reset_setting('audio_cue_create_from_pairs')
     db.reset_setting('audio_cue_snap_confidence')
     db.reset_setting('audio_cue_capture_min_seconds')

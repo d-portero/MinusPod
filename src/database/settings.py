@@ -111,6 +111,7 @@ class SettingsMixin:
             AUDIO_CUE_CAPTURE_MAX_INTRO_SECONDS, AUDIO_CUE_CAPTURE_MAX_OUTRO_SECONDS,
             AUDIO_CUE_PAIR_CONFIDENCE, AUDIO_CUE_PAIR_MIN_BREAK_SECONDS,
             AUDIO_CUE_PAIR_MAX_BREAK_SECONDS,
+            AUDIO_CUE_FORMANT_ATTEN_DB, AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS,
         )
         from llm_client import get_effective_provider
         from secrets_crypto import SECRET_SETTING_KEYS
@@ -181,6 +182,8 @@ class SettingsMixin:
             'audio_cue_min_confidence': str(AUDIO_CUE_MIN_CONFIDENCE),
             'audio_cue_create_from_pairs': 'false',
             'audio_cue_template_score': str(AUDIO_CUE_TEMPLATE_SCORE),
+            'audio_cue_formant_atten_db': str(AUDIO_CUE_FORMANT_ATTEN_DB),
+            'audio_cue_fp_recurring_window_seconds': str(AUDIO_CUE_FP_RECURRING_WINDOW_SECONDS),
             'audio_cue_snap_confidence': str(AUDIO_CUE_SNAP_CONFIDENCE),
             'audio_cue_capture_min_seconds': str(AUDIO_CUE_CAPTURE_MIN_SECONDS),
             'audio_cue_capture_max_seconds': str(AUDIO_CUE_CAPTURE_MAX_SECONDS),
