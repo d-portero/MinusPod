@@ -263,6 +263,24 @@ def test_import_rejects_wrong_sample_rate(app_client, seeded):
     assert '44100' in r.get_json().get('error', '')
 
 
+# --- audio stream ---------------------------------------------------------
+
+def test_cue_template_audio_streams_inline_wav(app_client, seeded):
+    headers = _csrf(app_client)
+    tid = _seed_template(seeded['db'], seeded['slug'])
+    resp = app_client.get(f'/api/v1/cue-templates/{tid}/audio', headers=headers)
+    assert resp.status_code == 200
+    assert resp.mimetype == 'audio/wav'
+    assert 'attachment' not in (resp.headers.get('Content-Disposition') or '')
+    assert resp.data[:4] == b'RIFF'
+
+
+def test_cue_template_audio_404_for_unknown(app_client, seeded):
+    headers = _csrf(app_client)
+    resp = app_client.get('/api/v1/cue-templates/99999/audio', headers=headers)
+    assert resp.status_code == 404
+
+
 # --- settings validation ---------------------------------------------------
 
 def test_settings_validation_for_new_keys(app_client):

@@ -115,6 +115,7 @@ def _template_to_meta_dict(row: dict) -> dict:
         'enabled': bool(row['enabled']),
         'createdAt': row['created_at'],
         'createdBy': row['created_by'] if 'created_by' in row.keys() else None,
+        'hasAudio': bool(row.get('pcm_blob')),
     }
 
 
@@ -501,6 +502,38 @@ def export_cue_template(template_id):
         mimetype='application/zip',
         as_attachment=True,
         download_name=f'cue-{template_id}-{safe_label}.zip',
+    )
+
+
+@api.route('/cue-templates/<int:template_id>/audio', methods=['GET'])
+@log_request
+def cue_template_audio(template_id):
+    """Stream a template's stored cue audio as an inline WAV for in-app playback.
+
+    Built from the retained int16 PCM blob (no ffmpeg; cues are short). Inline
+    (not an attachment) so an <audio> element can play it directly.
+    """
+    db = get_database()
+    row = db.get_cue_template(template_id)
+    if not row:
+        return error_response('template not found', 404)
+    pcm_blob = row.get('pcm_blob')
+    if not pcm_blob:
+        return error_response('this template has no raw audio to play', 422)
+    sample_rate = int(row.get('pcm_sample_rate') or SAMPLE_RATE_HZ)
+
+    wav_buf = io.BytesIO()
+    with wave.open(wav_buf, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_blob)
+    wav_buf.seek(0)
+    return send_file(
+        wav_buf,
+        mimetype='audio/wav',
+        as_attachment=False,
+        download_name=f'cue-{template_id}.wav',
     )
 
 

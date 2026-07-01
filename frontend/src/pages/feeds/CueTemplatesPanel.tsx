@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X } from 'lucide-react';
+import { X, Play, Square } from 'lucide-react';
 import CollapsibleSection from '../../components/CollapsibleSection';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import CueMarkModal from '../../components/CueMarkModal';
 import {
   CUE_TYPE_OPTIONS,
+  cueTemplateAudioUrl,
   cueTemplateExportUrl,
   deleteCueTemplate,
   importCueTemplate,
@@ -65,6 +66,20 @@ function CueTemplatesPanel({ slug }: Props) {
   const [verifying, setVerifying] = useState(false);
   const [promoteState, setPromoteState] = useState<{ template: CueTemplate; feeds: Feed[] } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingId, setPlayingId] = useState<number | null>(null);
+
+  const togglePlay = (t: CueTemplate) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playingId === t.id) {
+      audio.pause();
+      setPlayingId(null);
+      return;
+    }
+    audio.src = cueTemplateAudioUrl(t.id);
+    audio.play().then(() => setPlayingId(t.id)).catch(() => setPlayingId(null));
+  };
 
   const templatesQuery = useQuery({
     queryKey: ['cue-templates', slug],
@@ -242,6 +257,7 @@ function CueTemplatesPanel({ slug }: Props) {
           className="hidden"
           onChange={handleImportFile}
         />
+        <audio ref={audioRef} onEnded={() => setPlayingId(null)} className="hidden" />
         <div className="flex flex-wrap gap-2 mb-3">
           <button
             type="button"
@@ -348,6 +364,18 @@ function CueTemplatesPanel({ slug }: Props) {
                 </div>
                 {editingId !== t.id && (
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-7 sm:pl-0 sm:shrink-0">
+                    {t.hasAudio !== false && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => togglePlay(t)}
+                        title={playingId === t.id ? 'Stop' : 'Play this cue'}
+                        aria-label={playingId === t.id ? `Stop cue ${t.label}` : `Play cue ${t.label}`}
+                      >
+                        {playingId === t.id ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                        {playingId === t.id ? 'Stop' : 'Play'}
+                      </button>
+                    )}
                     <a
                       className="text-xs text-muted-foreground hover:text-foreground"
                       href={cueTemplateExportUrl(t.id)}

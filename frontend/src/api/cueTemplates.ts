@@ -58,6 +58,9 @@ export interface CueTemplate {
   // False for a network template shared from another feed in this network;
   // such rows are read-only here and managed on the feed that created them.
   owned?: boolean;
+  // True when the template has a stored PCM blob; the play button is shown only
+  // when this is true (or absent, for templates from older servers).
+  hasAudio?: boolean;
   // Create-response only: how many times the captured cue recurs in its source
   // episode, and whether that makes it a weak (non-recurring) ad-break cue.
   // Absent on list rows.
@@ -121,6 +124,12 @@ export async function updateCueTemplate(
 // cookie (GET needs no CSRF).
 export function cueTemplateExportUrl(templateId: number): string {
   return `/api/v1/cue-templates/${templateId}/export`;
+}
+
+// Direct URL for inline cue audio; an <audio src> hits it with the session
+// cookie (GET needs no CSRF).
+export function cueTemplateAudioUrl(templateId: number): string {
+  return `/api/v1/cue-templates/${templateId}/audio`;
 }
 
 export async function importCueTemplate(slug: string, file: File): Promise<CueTemplate> {
