@@ -14,6 +14,7 @@ from config import (
     resolve_env_backed_default,
     AUDIO_CUE_ROLE_DEFAULT,
     AUDIO_CUE_ROLE_NON_AD,
+    AUDIO_CUE_TYPE_CONTENT_TRANSITION,
 )
 from audio_enforcer import content_anchors
 from database import DEFAULT_REVIEW_PROMPT, DEFAULT_RESURRECT_PROMPT
@@ -158,6 +159,7 @@ def _format_cue_section(*, audio_analysis, ad_start: float, ad_end: float,
         near_start = []
         near_end = []
         near_non_ad = []
+        near_content_transition = []
         for cue in cues:
             if cue.confidence < 0.80:
                 continue
@@ -167,9 +169,16 @@ def _format_cue_section(*, audio_analysis, ad_start: float, ad_end: float,
             near_start_edge = abs(cue.start - ad_start) <= 60.0 or abs(cue.end - ad_start) <= 60.0
             near_end_edge = abs(cue.start - ad_end) <= 60.0 or abs(cue.end - ad_end) <= 60.0
             if role == AUDIO_CUE_ROLE_NON_AD:
-                # Intro/outro markers are not boundary evidence; surface them
-                # only to warn the reviewer off anchoring the ad to them.
-                if near_start_edge or near_end_edge:
+                if not (near_start_edge or near_end_edge):
+                    continue
+                # content_transition is a recurring segment/ad transition that
+                # MAY be an ad boundary; intro/outro are the show's own
+                # open/close and are never a boundary. Keep them distinct so the
+                # reviewer is not told to ignore a real ad-break transition.
+                cue_type = (cue.details or {}).get('cue_type')
+                if cue_type == AUDIO_CUE_TYPE_CONTENT_TRANSITION:
+                    near_content_transition.append((cue, label))
+                else:
                     near_non_ad.append((cue, label))
                 continue
             if near_start_edge:
@@ -205,6 +214,17 @@ def _format_cue_section(*, audio_analysis, ad_start: float, ad_end: float,
             lines.append(
                 "Do not anchor this ad's boundary to these markers; they are the "
                 "show's own intro/outro, not break stingers."
+            )
+        if near_content_transition:
+            lines.append("CONTENT TRANSITION MARKERS NEARBY:")
+            for cue, label in near_content_transition:
+                lines.append(
+                    f"  - \"{label}\" at {cue.start:.1f}s-{cue.end:.1f}s "
+                    f"(a recurring content/segment transition, may or may not be an ad boundary)"
+                )
+            lines.append(
+                "Use these as supporting evidence for where a break may start or "
+                "end; they do not force a cut."
             )
         # Pre/post-roll position bias: an ad wholly outside the content span
         # (before the first intro or after the last outro) is expected to be
