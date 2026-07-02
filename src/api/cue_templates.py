@@ -30,9 +30,7 @@ from audio_analysis.cue_features import (
     serialize_mfcc, pcm_to_int16_bytes, int16_bytes_to_pcm,
     pcm_to_flac, flac_to_wav,
 )
-from audio_analysis.cue_template_matcher import (
-    AudioCueTemplateMatcher, DEFAULT_MATCH_SCORE,
-)
+from audio_analysis.cue_template_matcher import AudioCueTemplateMatcher
 from audio_analysis.cue_candidates import (
     merge_cue_candidates, annotate_recurring_with_ad_affinity,
     count_ad_boundary_hits,
@@ -66,7 +64,6 @@ from config import (
     is_template_cue,
     AUDIO_CUE_SUGGEST_FLOOR, AUDIO_CUE_SUGGEST_MAX_EPISODES,
     AUDIO_CUE_EFFECT_FLOOR, AUDIO_CUE_SNAP_CONFIDENCE, AUDIO_CUE_PAIR_CONFIDENCE,
-    AUDIO_CUE_TEMPLATE_SCORE,
     AUDIO_CUE_TYPE_CONTENT_TRANSITION,
     AUDIO_CUE_AD_AFFINITY_TOLERANCE_SECONDS,
     AUDIO_CUE_AD_AFFINITY_MIN_FRACTION,

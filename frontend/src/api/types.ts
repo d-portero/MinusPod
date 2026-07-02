@@ -107,8 +107,13 @@ export interface CueDetection {
   end_s: number;
   match_score?: number | null;
   confidence?: number | null;
-  outcome: 'snap' | 'pair' | 'none';
+  outcome: 'snap' | 'pair' | 'none' | 'below_threshold';
   verdict: 'pending' | 'confirmed' | 'rejected';
+  // Signed distance to the nearest pre-snap LLM ad edge on the cue's eligible
+  // side; null for advisory (non_ad) and below_threshold rows (#350 Phase 6).
+  edge_distance_s?: number | null;
+  // Why an outcome='none' cue did nothing; null otherwise.
+  unused_reason?: string | null;
 }
 
 export interface AdValidation {

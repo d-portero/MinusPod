@@ -390,9 +390,10 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
     # default because it breaks the "cue is supporting evidence only" contract;
     # enable per the audio_cue_create_from_pairs setting once the matcher is
     # trusted. The reviewer still evaluates every synthesized ad (issue #350).
+    cue_pair_skip_diagnostics = {}
     if audio_analysis_result and db.get_setting_bool('audio_cue_create_from_pairs', default=False):
         try:
-            updated = synthesize_ads_from_cue_pairs(
+            updated, cue_pair_skip_diagnostics = synthesize_ads_from_cue_pairs(
                 first_pass_ads, audio_analysis_result,
                 min_confidence=db.get_setting_float('audio_cue_pair_confidence', AUDIO_CUE_PAIR_CONFIDENCE),
                 min_break_s=db.get_setting_float('audio_cue_pair_min_break_seconds', AUDIO_CUE_PAIR_MIN_BREAK_SECONDS),
@@ -418,6 +419,12 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
     # cannot warp the boundary beyond what the user has authorised. Implicitly
     # gated: there are no audio_cue signals unless cue detection ran, so this
     # is a no-op when the master toggle is off (issue #350).
+    # Snapshot the ad edges BEFORE snap so cue telemetry can measure each cue's
+    # distance to the LLM/synth ad edge it *would* have moved (snap mutates the
+    # live list in place). Captured whenever cue detection ran (#350 Phase 6).
+    snap_confidence = db.get_setting_float('audio_cue_snap_confidence', AUDIO_CUE_SNAP_CONFIDENCE)
+    pre_snap_ads = ([{'start': a.get('start'), 'end': a.get('end')} for a in first_pass_ads]
+                    if audio_analysis_result else [])
     if first_pass_ads and audio_analysis_result:
         try:
             raw_cap = db.get_setting('review_max_boundary_shift')
@@ -428,7 +435,7 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
             # Mutates first_pass_ads in place (edges + cue_snap metadata).
             snap_ad_boundaries_to_cues(
                 first_pass_ads, audio_analysis_result, max_shift,
-                min_confidence=db.get_setting_float('audio_cue_snap_confidence', AUDIO_CUE_SNAP_CONFIDENCE),
+                min_confidence=snap_confidence,
             )
         except Exception as e:
             audio_logger.warning(
@@ -437,11 +444,17 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
 
     # Record per-cue detection telemetry (advisory only; never alters the cuts).
     # Captures every template cue with its match score and how detection used it
-    # (snap / pair / none) so the user can judge a feed's cues and tune thresholds.
+    # (snap / pair / none / below_threshold), plus edge distance and unused
+    # reason, so the user can judge a feed's cues and tune thresholds (#350).
     podcast_id = getattr(ctx, 'podcast_id', None)
     if audio_analysis_result and podcast_id:
         try:
-            records = build_cue_detection_records(first_pass_ads, audio_analysis_result)
+            records = build_cue_detection_records(
+                first_pass_ads, audio_analysis_result,
+                pre_snap_ads=pre_snap_ads,
+                pair_skip_diagnostics=cue_pair_skip_diagnostics,
+                snap_confidence=snap_confidence,
+            )
             db.record_cue_detections(podcast_id, episode_id, records)
         except Exception as e:
             audio_logger.warning(

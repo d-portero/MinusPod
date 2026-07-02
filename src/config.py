@@ -191,6 +191,17 @@ AUDIO_CUE_ONSET_LAG_SECONDS = 0.2    # ebur128 momentary loudness integrates ove
 # dip below 0.85 with background beds) against false positives (non-cue audio
 # sits near 0.0). Tuneable via the audio_cue_template_score DB setting.
 AUDIO_CUE_TEMPLATE_SCORE = 0.75
+# Near-miss telemetry (#350 Phase 6). When the live cue pipeline runs, the
+# matcher also records sub-threshold peaks in a band just below the resolved
+# per-feed threshold so the telemetry can answer WHY a cue did not fire. These
+# are advisory rows only (outcome='below_threshold') -- never signals, so snap /
+# pair / prompt / detected-cues stay blind. DELTA is the width of that band
+# (floor = max(MIN_FLOOR, threshold - DELTA)); MIN_FLOOR keeps the floor off the
+# noise carpet; MAX_PER_TEMPLATE caps how many near-misses one template reports
+# so a noisy episode cannot balloon the telemetry table.
+AUDIO_CUE_NEAR_MISS_DELTA = 0.2
+AUDIO_CUE_NEAR_MISS_MIN_FLOOR = 0.5
+AUDIO_CUE_NEAR_MISS_MAX_PER_TEMPLATE = 10
 # Ad-affinity typing for recurring cue candidates (#350 Phase 4). A recurring
 # candidate's occurrence is counted as a "hit" if it lands within
 # TOLERANCE_SECONDS of any known ad boundary (start or end). Candidates with

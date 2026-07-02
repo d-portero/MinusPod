@@ -5493,6 +5493,7 @@ paths:
                     properties:
                       scoreHistogram:
                         type: array
+                        description: Match-score buckets for above-threshold cues.
                         items:
                           type: object
                           properties:
@@ -5500,6 +5501,28 @@ paths:
                               type: number
                             count:
                               type: integer
+                      nearMissHistogram:
+                        type: array
+                        description: >
+                          Score buckets for below_threshold near-misses (same
+                          bucketing as scoreHistogram). These never affected cuts.
+                        items:
+                          type: object
+                          properties:
+                            scoreFrom:
+                              type: number
+                            count:
+                              type: integer
+                      nearMissTotal:
+                        type: integer
+                        description: Count of below_threshold advisory rows.
+                      unusedReasons:
+                        type: object
+                        additionalProperties:
+                          type: integer
+                        description: >
+                          Count per unused_reason across outcome='none' cues
+                          (e.g. covered, out_of_reach, unpaired).
 
 security:
   - sessionCookie: []
@@ -5933,15 +5956,38 @@ components:
           nullable: true
         outcome:
           type: string
-          enum: [snap, pair, none]
-          description: How detection used the cue
+          enum: [snap, pair, none, below_threshold]
+          description: >
+            How detection used the cue. 'below_threshold' is an advisory
+            near-miss the matcher scored just under the feed threshold; it was
+            never a signal and never affected a cut.
         verdict:
           type: string
           enum: [pending, confirmed, rejected]
+        edge_distance_s:
+          type: number
+          nullable: true
+          description: >
+            Signed distance (edge - cue) from an above-threshold cue to the
+            nearest pre-snap LLM ad edge on its eligible side. NULL for advisory
+            (non_ad) cues and for below_threshold rows.
+        unused_reason:
+          type: string
+          nullable: true
+          enum: [covered, out_of_reach, below_snap_confidence, advisory_role,
+                 unpaired, below_pair_confidence, covered_by_existing_ad,
+                 no_partner_in_band, phase_mismatch]
+          description: >
+            For an outcome='none' cue, why it did nothing. NULL for snap / pair /
+            below_threshold outcomes.
 
     CueAdvisory:
       type: object
-      description: Aggregate cue telemetry for a feed (or globally).
+      description: >
+        Aggregate cue telemetry for a feed (or globally). Totals, score range,
+        and confirmRate count above-threshold cues only; below_threshold
+        near-misses are reported separately (see the aggregate endpoint's
+        nearMissTotal / nearMissHistogram).
       properties:
         total:
           type: integer

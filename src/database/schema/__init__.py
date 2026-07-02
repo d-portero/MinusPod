@@ -1425,6 +1425,74 @@ class SchemaMixin:
                     FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
                 )
             """)
+            # One-time rebuild for DBs created while outcome still carried the
+            # CHECK that predates 'below_threshold' (#350 Phase 6 near-miss
+            # telemetry). SQLite can't ALTER a CHECK, so those DBs would reject
+            # the new advisory outcome. Drop the outcome CHECK by rebuilding;
+            # the app layer (_VALID_OUTCOMES) validates the value, matching
+            # ALTER-path DBs that never had it. The verdict CHECK is kept intact.
+            # Nothing FK-references this table, so the drop/rename is safe.
+            # Idempotent: runs only while the outcome CHECK is still present.
+            # THE DATA-LOSS RULE IS ABSOLUTE: row-count verified before the drop.
+            cd_sql_row = conn.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='table' AND name='cue_detections'"
+            ).fetchone()
+            if cd_sql_row and 'CHECK(outcome' in (cd_sql_row[0] or ''):
+                cd_cols = (
+                    "id, podcast_id, episode_id, template_id, label, cue_type, "
+                    "role, source, start_s, end_s, match_score, confidence, "
+                    "outcome, verdict, created_at"
+                )
+                before_cd = conn.execute(
+                    "SELECT COUNT(*) FROM cue_detections").fetchone()[0]
+                conn.execute("""
+                    CREATE TABLE cue_detections_rebuild (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        podcast_id INTEGER NOT NULL,
+                        episode_id TEXT NOT NULL,
+                        template_id INTEGER,
+                        label TEXT,
+                        cue_type TEXT,
+                        role TEXT,
+                        source TEXT NOT NULL DEFAULT 'template',
+                        start_s REAL NOT NULL,
+                        end_s REAL NOT NULL,
+                        match_score REAL,
+                        confidence REAL,
+                        outcome TEXT NOT NULL DEFAULT 'none',
+                        verdict TEXT NOT NULL DEFAULT 'pending' CHECK(verdict IN ('pending', 'confirmed', 'rejected')),
+                        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                        FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
+                    )
+                """)
+                conn.execute(
+                    f"INSERT INTO cue_detections_rebuild ({cd_cols}) "
+                    f"SELECT {cd_cols} FROM cue_detections"
+                )
+                after_cd = conn.execute(
+                    "SELECT COUNT(*) FROM cue_detections_rebuild").fetchone()[0]
+                if after_cd != before_cd:
+                    conn.execute("DROP TABLE cue_detections_rebuild")
+                    raise RuntimeError(
+                        f"outcome CHECK rebuild row mismatch: {before_cd} != {after_cd}")
+                conn.execute("DROP TABLE cue_detections")
+                conn.execute(
+                    "ALTER TABLE cue_detections_rebuild "
+                    "RENAME TO cue_detections")
+                logger.info(
+                    "Migration: dropped legacy outcome CHECK on "
+                    "cue_detections (%d rows preserved)", before_cd)
+            # Near-miss / diagnostics columns (#350 Phase 6). Additive nullable
+            # columns; no CHECK so the ALTER path is safe on both fresh and
+            # rebuilt tables. edge_distance_s: signed distance from an
+            # above-threshold cue to the nearest pre-snap LLM ad edge on its
+            # eligible side. unused_reason: taxonomy explaining an outcome='none'.
+            cd_cols_now = self._get_table_columns(conn, 'cue_detections')
+            self._add_column_if_missing(
+                conn, 'cue_detections', 'edge_distance_s', 'REAL', cd_cols_now)
+            self._add_column_if_missing(
+                conn, 'cue_detections', 'unused_reason', 'TEXT', cd_cols_now)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_cue_detections_episode "
                 "ON cue_detections(episode_id)"
