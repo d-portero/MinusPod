@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Square } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Square, ChevronDown } from 'lucide-react';
 import { formatTime } from '../../utils/adReviewHelpers';
 import { PLAYBACK_RATES, ghostBtn, primaryBtn, selectionBtn } from './controlStyles';
 
@@ -51,14 +51,18 @@ function TransportBar({
   const speedRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!speedOpen) return;
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: MouseEvent | TouchEvent) => {
       if (speedRef.current && !speedRef.current.contains(e.target as Node)) setSpeedOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSpeedOpen(false); };
+    // stopPropagation so Escape only closes the popover, not the parent modal
+    // (both editors close on a window-level Escape and would discard the edit).
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setSpeedOpen(false); } };
     document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
       document.removeEventListener('keydown', onKey);
     };
   }, [speedOpen]);
@@ -70,72 +74,68 @@ function TransportBar({
           tall on a wide screen. The transport cluster keeps the speed control
           grouped beside it at any width. */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center sm:gap-4">
-        <div className="flex items-center justify-center gap-0.5">
-        <button type="button" onClick={onSeekToStart} className={`p-1.5 rounded ${ghostBtn}`} title="Jump to START pin">
-          <SkipBack className="w-4 h-4" />
-        </button>
-        <button type="button" onClick={() => onSeekRelative(-10)} className={`p-1.5 rounded ${ghostBtn}`} title="Back 10s">
-          <Rewind className="w-4 h-4" />
-        </button>
-        <button type="button" onClick={onTogglePlay} className={`p-1.5 rounded-full ${primaryBtn}`} title="Play / pause (Space)">
-          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-        </button>
-        {onPlaySelection && (
-          <button
-            type="button"
-            onClick={onPlaySelection}
-            className={selectionBtn}
-            title="Play the selection only"
-            aria-label="Play selection"
-          >
-            <span aria-hidden="true" className="text-xs font-bold leading-none">[</span>
-            <Play className="w-3.5 h-3.5" />
-            <span aria-hidden="true" className="text-xs font-bold leading-none">]</span>
+        <div className="flex flex-wrap items-center justify-center gap-0.5">
+          <button type="button" onClick={onSeekToStart} className={`p-1.5 rounded ${ghostBtn}`} title="Jump to START pin">
+            <SkipBack className="w-4 h-4" />
           </button>
-        )}
-        <button type="button" onClick={() => onSeekRelative(10)} className={`p-1.5 rounded ${ghostBtn}`} title="Forward 10s">
-          <FastForward className="w-4 h-4" />
-        </button>
-        <button type="button" onClick={onSeekToEnd} className={`p-1.5 rounded ${ghostBtn}`} title="Jump to END pin">
-          <SkipForward className="w-4 h-4" />
-        </button>
-        <button type="button" onClick={onStop} className={`p-1.5 rounded ${ghostBtn}`} title="Stop (pause + return to START)">
-          <Square className="w-4 h-4" />
-        </button>
-        <div className="relative ml-1" ref={speedRef}>
-          <button
-            type="button"
-            onClick={() => setSpeedOpen((o) => !o)}
-            className={`h-8 px-2 rounded inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${ghostBtn} ${playbackRate !== 1 ? 'text-foreground' : ''} focus:outline-hidden focus:ring-2 focus:ring-ring`}
-            title="Playback speed"
-            aria-haspopup="listbox"
-            aria-expanded={speedOpen}
-            aria-label="Playback speed"
-          >
-            {playbackRate}&times;
-            <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+          <button type="button" onClick={() => onSeekRelative(-10)} className={`p-1.5 rounded ${ghostBtn}`} title="Back 10s">
+            <Rewind className="w-4 h-4" />
           </button>
-          {speedOpen && (
-            <ul role="listbox" className="absolute right-0 bottom-full mb-1 z-20 min-w-[3.25rem] rounded-md border border-border bg-card shadow-lg py-1">
-              {PLAYBACK_RATES.map((r) => (
-                <li key={r}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={r === playbackRate}
-                    onClick={() => { onPlaybackRateChange(r); setSpeedOpen(false); }}
-                    className={`block w-full px-3 py-1 text-right text-xs tabular-nums hover:bg-accent ${r === playbackRate ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}
-                  >
-                    {r}&times;
-                  </button>
-                </li>
-              ))}
-            </ul>
+          <button type="button" onClick={onTogglePlay} className={`p-1.5 rounded-full ${primaryBtn}`} title="Play / pause (Space)">
+            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+          </button>
+          {onPlaySelection && (
+            <button
+              type="button"
+              onClick={onPlaySelection}
+              className={selectionBtn}
+              title="Play the selection only"
+              aria-label="Play selection"
+            >
+              <span aria-hidden="true" className="text-xs font-bold leading-none">[</span>
+              <Play className="w-3.5 h-3.5" />
+              <span aria-hidden="true" className="text-xs font-bold leading-none">]</span>
+            </button>
           )}
+          <button type="button" onClick={() => onSeekRelative(10)} className={`p-1.5 rounded ${ghostBtn}`} title="Forward 10s">
+            <FastForward className="w-4 h-4" />
+          </button>
+          <button type="button" onClick={onSeekToEnd} className={`p-1.5 rounded ${ghostBtn}`} title="Jump to END pin">
+            <SkipForward className="w-4 h-4" />
+          </button>
+          <button type="button" onClick={onStop} className={`p-1.5 rounded ${ghostBtn}`} title="Stop (pause + return to START)">
+            <Square className="w-4 h-4" />
+          </button>
+          <div className="relative ml-1" ref={speedRef}>
+            <button
+              type="button"
+              onClick={() => setSpeedOpen((o) => !o)}
+              className={`h-8 px-2 rounded inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${ghostBtn} focus:outline-hidden focus:ring-2 focus:ring-ring`}
+              title="Playback speed"
+              aria-expanded={speedOpen}
+              aria-label="Playback speed"
+            >
+              {playbackRate}&times;
+              <ChevronDown className="w-3 h-3 opacity-60" aria-hidden="true" />
+            </button>
+            {speedOpen && (
+              <ul className="absolute right-0 bottom-full mb-1 z-20 min-w-[3.25rem] rounded-md border border-border bg-card shadow-lg py-1">
+                {PLAYBACK_RATES.map((r) => (
+                  <li key={r}>
+                    <button
+                      type="button"
+                      aria-current={r === playbackRate}
+                      onClick={() => { onPlaybackRateChange(r); setSpeedOpen(false); }}
+                      className={`block w-full px-3 py-1 text-right text-xs tabular-nums hover:bg-accent ${r === playbackRate ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}
+                    >
+                      {r}&times;
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
-      </div>
         {/* Selection readout: below the controls on mobile, beside them on desktop. */}
         <div className="mt-2 sm:mt-0 flex items-center justify-center gap-2 flex-wrap text-xs tabular-nums text-muted-foreground">
           <span className="text-foreground">{formatTime(currentTime)}</span>

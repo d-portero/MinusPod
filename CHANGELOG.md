@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - On a wide screen the transport controls and the selection readout share one row instead of stacking, so the editor is not three lines tall. On mobile they still stack.
 
+### Fixed
+
+- The playback-speed picker closes on Escape without also closing the editor, dismisses on a touch outside it, and no longer advertises listbox semantics it did not implement.
+
 ## [2.31.6] - 2026-07-02
 
 ### Changed

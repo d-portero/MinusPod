@@ -17,10 +17,8 @@ export const primaryBtn =
 
 export const ctrlBtn = `px-2 py-1.5 rounded ${ghostBtn} text-sm`;
 
-// Amber-accented icon button for "play selection", tied visually to the amber
-// selection region and the "IN SELECTION" badge so users spot it among the
-// transport controls. Same p-1.5 footprint as the ghost icon buttons so it
-// does not crowd the row. Amber shifts a stop darker in light mode for contrast.
+// Amber "play selection" button, matched to the amber selection region/badge.
+// Wider than the ghost icon buttons (px-2) to fit the bracketed [play] glyphs.
 export const selectionBtn =
   'inline-flex items-center gap-0.5 px-2 py-1.5 rounded transition-colors ' +
   'border border-amber-600/50 text-amber-600 bg-amber-500/10 ' +
