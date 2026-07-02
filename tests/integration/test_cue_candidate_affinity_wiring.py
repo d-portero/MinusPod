@@ -36,10 +36,11 @@ def seeded_with_ad_history(app_client):
     db.create_podcast(slug, 'https://example.com/affinity.xml', title='Affinity Show')
     db.upsert_episode(slug, episode_id, title='Ep 1', status='processed',
                       original_file='original.mp3')
-    # Plant ad_markers_json near the candidate's expected occurrence positions.
+    # Plant post-review markers (was_cut set) near the expected occurrences;
+    # raw markers without was_cut are untrusted and yield no affinity.
     ad_markers = [
-        {'start': 100.0, 'end': 160.0, 'confidence': 0.9},
-        {'start': 600.0, 'end': 660.0, 'confidence': 0.9},
+        {'start': 100.0, 'end': 160.0, 'confidence': 0.9, 'was_cut': True},
+        {'start': 600.0, 'end': 660.0, 'confidence': 0.9, 'was_cut': True},
     ]
     db.save_episode_details(slug, episode_id, ad_markers=ad_markers)
     sr = 16000
