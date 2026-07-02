@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getNetworks, updateFeed, UpdateFeedPayload } from '../../api/feeds';
 import { getSettings } from '../../api/settings';
@@ -34,6 +34,10 @@ function FeedSettingsPanel({ feed, slug }: Props) {
   const [cueScoreInput, setCueScoreInput] = useState<string>(
     feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : '',
   );
+
+  useEffect(() => {
+    setCueScoreInput(feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : '');
+  }, [feed.cueTemplateScoreOverride]);
 
   const updateMutation = useMutation({
     mutationFn: (data: UpdateFeedPayload) => updateFeed(slug, data),

@@ -361,12 +361,8 @@ def cue_scan_episode(slug, episode_id):
         threshold_source = 'request'
     else:
         per_feed = db.get_podcast_cue_score_override(podcast['id'])
-        if per_feed is not None:
-            score = per_feed
-            threshold_source = 'override'
-        else:
-            score = db.get_setting_float('audio_cue_template_score', DEFAULT_MATCH_SCORE)
-            threshold_source = 'global'
+        score = resolve_cue_template_score(db, podcast['id'])
+        threshold_source = 'override' if per_feed is not None else 'global'
     matcher = AudioCueTemplateMatcher(
         templates=templates, score_threshold=score,
         formant_atten_db=db.get_setting_float(
@@ -1216,8 +1212,8 @@ def _run_cue_threshold_scan(podcast_id, episode_id, slug, audio_paths,
             for t in debug.get('templates', []):
                 peaks[t['id']] = max(peaks.get(t['id'], 0.0), t.get('peak_score', 0.0))
         suggestion = suggest_cue_threshold(scores, effect_floor=effect_floor)
-        current_threshold = resolve_cue_template_score(db, podcast_id)
         per_feed_val = db.get_podcast_cue_score_override(podcast_id)
+        current_threshold = resolve_cue_template_score(db, podcast_id)
         db.save_cue_threshold_scan_result(podcast_id, episode_id, {
             'suggestion': suggestion,
             'sampleEpisodes': len(audio_paths),
