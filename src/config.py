@@ -664,55 +664,79 @@ def normalize_model_key(name: str) -> str:
     return re.sub(r'[^a-z0-9]', '', name.lower())
 
 
-def get_pricing_source(provider: str, base_url: str = '') -> dict:
-    """Determine pricing source for the active provider.
+_LITELLM_SOURCE = {'type': 'litellm'}
 
-    Returns dict with:
-      'type': 'openrouter_api' | 'pricepertoken' | 'free' | 'unknown'
-      'url': full URL to fetch (for openrouter_api and pricepertoken types)
+
+def _openrouter_source() -> dict:
+    return {'type': 'openrouter_api', 'url': 'https://openrouter.ai/api/v1/models'}
+
+
+def _is_local_domain(domain: str) -> bool:
+    """True for loopback, .local/.lan, or RFC1918 private-range hosts."""
+    if not domain:
+        return False
+    if domain in ('localhost', '127.0.0.1', '::1'):
+        return True
+    if domain.endswith('.local') or domain.endswith('.lan'):
+        return True
+    try:
+        return ipaddress.ip_address(domain).is_private
+    except ValueError:
+        return False
+
+
+def get_pricing_sources(provider: str, base_url: str = '') -> list:
+    """Ordered pricing-source chain for the active provider.
+
+    Each element is a source dict:
+      'type': 'openrouter_api' | 'pricepertoken' | 'litellm' | 'free'
+      'url': fetch URL (openrouter_api, pricepertoken)
+      'provider_filter': litellm_provider to filter on (litellm only, optional)
+
+    Chain semantics: fetch each source in order, first source with a key wins,
+    later sources only fill gaps. Unknown PUBLIC endpoints fall to LiteLLM
+    (never bare 'free') so refresh is never permanently skipped -- the pricing
+    table stays live. Only demonstrably local/self-hosted endpoints map to free.
     """
     if provider == PROVIDER_OLLAMA:
-        return {'type': 'free'}
+        return [{'type': 'free'}]
 
     if provider == PROVIDER_OPENROUTER:
-        return {
-            'type': 'openrouter_api',
-            'url': 'https://openrouter.ai/api/v1/models',
-        }
+        return [_openrouter_source(), dict(_LITELLM_SOURCE)]
 
     if provider == PROVIDER_ANTHROPIC:
-        return {
-            'type': 'pricepertoken',
-            'url': 'https://pricepertoken.com/pricing-page/provider/anthropic',
-        }
+        return [
+            {
+                'type': 'pricepertoken',
+                'url': 'https://pricepertoken.com/pricing-page/provider/anthropic',
+            },
+            {'type': 'litellm', 'provider_filter': PROVIDER_ANTHROPIC},
+        ]
 
-    # Parse domain from base_url for openai-compatible providers
+    # openai-compatible: resolve by base_url domain.
     domain = urlparse(base_url or '').hostname or ''
 
     for known_domain, slug_info in PROVIDER_PRICING_SLUGS.items():
         if domain == known_domain or domain.endswith('.' + known_domain):
             if slug_info is None:
-                return {
-                    'type': 'openrouter_api',
-                    'url': 'https://openrouter.ai/api/v1/models',
-                }
+                return [_openrouter_source(), dict(_LITELLM_SOURCE)]
             url_type, slug = slug_info
-            return {
-                'type': 'pricepertoken',
-                'url': f'https://pricepertoken.com/{url_type}/{slug}',
-            }
+            return [
+                {'type': 'pricepertoken',
+                 'url': f'https://pricepertoken.com/{url_type}/{slug}'},
+                dict(_LITELLM_SOURCE),
+            ]
 
-    # localhost, private IPs, unknown domains -> likely local/self-hosted
-    if domain in ('localhost', '127.0.0.1', '::1') or domain.endswith('.local'):
-        return {'type': 'free'}
+    if _is_local_domain(domain):
+        return [{'type': 'free'}]
 
-    try:
-        if ipaddress.ip_address(domain).is_private:
-            return {'type': 'free'}
-    except ValueError:
-        pass
+    # Unknown PUBLIC domain -- unfiltered LiteLLM, never bare free.
+    return [dict(_LITELLM_SOURCE)]
 
-    return {'type': 'unknown', 'domain': domain}
+
+def get_pricing_source(provider: str, base_url: str = '') -> dict:
+    """First source in the pricing chain. Thin wrapper for single-source callers."""
+    return get_pricing_sources(provider, base_url)[0]
 
 
 # ============================================================

@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.32.2] - 2026-07-02
+
+### Fixed
+
+- Pricing source resolution returns an ordered fallback chain instead of a single source, and unknown public openai-compatible domains fall to LiteLLM rather than being treated as free, so a pricing refresh is never permanently skipped (third incident of this class, after opus48-cost-fix and 1.0.79). Claude default pricing is now backfilled after every refresh when the provider is Anthropic or any configured model normalizes to a Claude key, regardless of fetch success. The cost prefix match refuses a version-crossing match when the next character after the matched prefix is a digit, so claude-opus-4-8 no longer prefix-matches claude-opus-4. Adds claude-sonnet-5 (3/15) and claude-fable-5 (10/50) defaults plus a one-time recompute of Sonnet 5 / Fable 5 calls previously recorded at $0.
+
 ## [2.32.1] - 2026-07-02
 
 ### Fixed

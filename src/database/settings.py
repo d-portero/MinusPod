@@ -9,7 +9,10 @@ from secrets_crypto import CryptoUnavailableError, decrypt, encrypt, is_cipherte
 logger = logging.getLogger(__name__)
 
 # Default pricing for known Anthropic models (USD per 1M tokens)
+# claude-sonnet-5/fable-5/opus-4-8 values from LiteLLM 2026-07-02.
 DEFAULT_MODEL_PRICING = {
+    'claude-sonnet-5':            {'name': 'Claude Sonnet 5',   'input': 3.0,  'output': 15.0},
+    'claude-fable-5':             {'name': 'Claude Fable 5',    'input': 10.0, 'output': 50.0},
     'claude-opus-4-8':            {'name': 'Claude Opus 4.8',   'input': 5.0,  'output': 25.0},
     'claude-opus-4-7':            {'name': 'Claude Opus 4.7',   'input': 5.0,  'output': 25.0},
     'claude-opus-4-6':            {'name': 'Claude Opus 4.6',   'input': 5.0,  'output': 25.0},
