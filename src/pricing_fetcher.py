@@ -435,6 +435,15 @@ def refresh_pricing_if_stale(force: bool = False):
     base_url = get_effective_base_url()
     sources = get_pricing_sources(provider, base_url)
 
+    # Read mode once; free suppresses all seeding (switching modes never destroys existing rows).
+    from config import _get_pricing_source_mode
+    pricing_mode = _get_pricing_source_mode()
+    if pricing_mode == 'free':
+        logger.info("pricing mode 'free': skipping fetch and default seeding")
+        with _fetch_lock:
+            _last_fetch = time.monotonic()
+        return
+
     logger.debug(
         f"Pricing refresh: provider={provider} "
         f"chain={[s.get('type') for s in sources]}"

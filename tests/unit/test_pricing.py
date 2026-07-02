@@ -227,10 +227,6 @@ class TestPricingSourceMode:
 
     def test_db_error_falls_back_to_auto(self):
         from config import _get_pricing_source_mode
-        with patch('config._get_pricing_source_mode', side_effect=Exception('db gone')):
-            # The real function should tolerate missing DB; test the guard path via
-            # the public API instead -- auto mode should produce litellm for LAN.
-            pass
         # Verify _get_pricing_source_mode handles its own exception path
         with patch('database.Database', side_effect=Exception('db gone')):
             result = _get_pricing_source_mode()
@@ -601,6 +597,43 @@ class TestClaudeBackfillGate:
         from pricing_fetcher import _should_backfill_claude_defaults
         db = self._db({'claude_model': 'gpt-4o', 'verification_model': 'claude-opus-4-8'})
         assert _should_backfill_claude_defaults(db, 'openai-compatible') is True
+
+
+class TestRefreshFreeModeSkipsSeeding:
+    """mode=free suppresses both the live fetch and default seeding."""
+
+    def _make_db(self):
+        db = MagicMock()
+        db.get_pricing_last_updated.return_value = None
+        db.get_model_pricing.return_value = []
+        return db
+
+    def test_free_mode_with_claude_model_no_backfill(self):
+        import pricing_fetcher
+        db = self._make_db()
+        db.get_setting.side_effect = lambda k: 'claude-sonnet-5' if k == 'claude_model' else None
+        with patch('config._get_pricing_source_mode', return_value='free'), \
+             patch('pricing_fetcher.get_pricing_sources',
+                   return_value=[{'type': 'free'}]), \
+             patch('llm_client.get_effective_provider', return_value='anthropic'), \
+             patch('llm_client.get_effective_base_url', return_value=''), \
+             patch('database.Database', return_value=db):
+            pricing_fetcher.refresh_pricing_if_stale(force=True)
+        db.seed_default_pricing.assert_not_called()
+
+    def test_free_mode_empty_table_stays_empty(self):
+        import pricing_fetcher
+        db = self._make_db()
+        db.get_setting.return_value = None
+        with patch('config._get_pricing_source_mode', return_value='free'), \
+             patch('pricing_fetcher.get_pricing_sources',
+                   return_value=[{'type': 'free'}]), \
+             patch('llm_client.get_effective_provider', return_value='openai-compatible'), \
+             patch('llm_client.get_effective_base_url', return_value='http://localhost:11434/v1'), \
+             patch('database.Database', return_value=db):
+            pricing_fetcher.refresh_pricing_if_stale(force=True)
+        db.seed_default_pricing.assert_not_called()
+        db.upsert_fetched_pricing.assert_not_called()
 
 
 class TestRefreshBackfillOnFailure:
