@@ -14,7 +14,6 @@ from ad_detector.cue_boundary_snap import (
     DEFAULT_SNAP_LEAD_SECONDS,
     DEFAULT_SNAP_LAG_SECONDS,
     _pick_cue_for_start,
-    _pick_cue_for_end,
 )
 from audio_analysis.base import AudioAnalysisResult, AudioSegmentSignal
 from main_app import processing

@@ -11,7 +11,6 @@ These tests mock the AudioCueTemplateMatcher to avoid requiring real audio files
 import os
 import sys
 import tempfile
-import types
 
 import pytest
 
@@ -40,7 +39,6 @@ def _csrf(app_client):
 @pytest.fixture
 def seeded(app_client, monkeypatch):
     from api import get_database, get_storage
-    from unittest.mock import MagicMock
     import audio_analysis.cue_template_matcher as ctm
 
     db = get_database()

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getNetworks, updateFeed, UpdateFeedPayload, CUE_SCORE_MIN, CUE_SCORE_MAX } from '../../api/feeds';
 import { getSettings } from '../../api/settings';
@@ -31,13 +31,15 @@ function FeedSettingsPanel({ feed, slug }: Props) {
     queryFn: getSettings,
   });
 
-  const [cueScoreInput, setCueScoreInput] = useState<string>(
-    feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : '',
-  );
-
-  useEffect(() => {
-    setCueScoreInput(feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : '');
-  }, [feed.cueTemplateScoreOverride]);
+  const savedCueScore =
+    feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : '';
+  const [cueScoreInput, setCueScoreInput] = useState<string>(savedCueScore);
+  // Render-time reset when the server value changes (avoids a setState-in-effect).
+  const [prevSavedCueScore, setPrevSavedCueScore] = useState<string>(savedCueScore);
+  if (savedCueScore !== prevSavedCueScore) {
+    setPrevSavedCueScore(savedCueScore);
+    setCueScoreInput(savedCueScore);
+  }
 
   const updateMutation = useMutation({
     mutationFn: (data: UpdateFeedPayload) => updateFeed(slug, data),
