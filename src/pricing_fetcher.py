@@ -349,19 +349,22 @@ def fetch_pricing_chain(sources: List[dict]) -> List[Dict]:
 
     Each source is fetched in order; a per-source failure logs WARNING and the
     chain continues. Later sources only fill keys the earlier ones did not
-    provide. Logs one INFO summarizing per-source contribution counts.
+    provide. Each merged row carries a '_source' key with the type of the
+    source that actually contributed it. Logs one INFO summarizing per-source
+    contribution counts.
     """
     merged: Dict[str, Dict] = {}
     summary: List[str] = []
     for source in sources:
+        source_type = source.get('type', 'unknown')
         rows = _fetch_single_source(source)
         added = 0
         for row in rows:
             key = row['match_key']
             if key and key not in merged:
-                merged[key] = row
+                merged[key] = {**row, '_source': source_type}
                 added += 1
-        summary.append(f"{source.get('type')}={len(rows)}rows/{added}new")
+        summary.append(f"{source_type}={len(rows)}rows/{added}new")
     logger.info(
         f"Pricing chain merged {len(merged)} models "
         f"({', '.join(summary) or 'no sources'})"

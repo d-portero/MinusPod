@@ -132,6 +132,7 @@ class StatsMixin:
             for candidate in cursor:
                 matched_key = candidate['match_key']
                 remainder = match_key[len(matched_key):]
+                # Also blocks same-generation minor-version prefixes (e.g. claudesonnet45 -> claudesonnet4).
                 if remainder and remainder[0].isdigit():
                     logger.warning(
                         f"Cost lookup: refusing version-crossing prefix match "

@@ -1690,28 +1690,31 @@ class SchemaMixin:
                 (model_id, match_key, model_id, info['name'], in_per_mtok, out_per_mtok),
             )
 
-            row = conn.execute(
-                """SELECT total_input_tokens, total_output_tokens, total_cost
+            # Recompute per model_id (PK) so sibling rows sharing this match_key
+            # but with nonzero cost are never clobbered. opus48-cost-fix had the
+            # same latent flaw; corrected pattern starts here.
+            rows = conn.execute(
+                """SELECT model_id, total_input_tokens, total_output_tokens, total_cost
                    FROM token_usage
                    WHERE match_key = ? AND total_cost = 0
                      AND (total_input_tokens > 0 OR total_output_tokens > 0)""",
                 (match_key,),
-            ).fetchone()
+            ).fetchall()
 
-            if row is not None:
+            for row in rows:
                 new_cost = (
                     (row['total_input_tokens'] / 1_000_000) * in_per_mtok
                     + (row['total_output_tokens'] / 1_000_000) * out_per_mtok
                 )
                 conn.execute(
-                    "UPDATE token_usage SET total_cost = ? WHERE match_key = ?",
-                    (new_cost, match_key),
+                    "UPDATE token_usage SET total_cost = ? WHERE model_id = ?",
+                    (new_cost, row['model_id']),
                 )
                 corrected_any = True
                 logger.info(
                     "sonnet5/fable5-cost-fix: %s total_cost %.6f -> %.6f "
                     "(in=%s out=%s @ %s/%s per Mtok)",
-                    match_key, row['total_cost'], new_cost,
+                    row['model_id'], row['total_cost'], new_cost,
                     row['total_input_tokens'], row['total_output_tokens'],
                     in_per_mtok, out_per_mtok,
                 )

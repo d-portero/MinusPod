@@ -1046,6 +1046,55 @@ class TestSonnet5Fable5CostRecomputeMigration:
         ).fetchone()
         assert abs(stat['value'] - 2.5) < 0.001  # untouched
 
+    def test_sibling_row_with_correct_cost_is_not_clobbered(self, temp_db):
+        """Two rows share claudesonnet5 match_key: one $0 (needs fix), one $42 (correct).
+        After migration the $0 row gets its own recomputed cost and the $42 row is untouched.
+        Sonnet 5 rates: in=3.0/Mtok out=15.0/Mtok.
+        $0 row: 1M in + 1M out -> 3 + 15 = $18.
+        $42 row: dated model_id, already correct, must stay at $42.
+        Global resets to sum of all token_usage rows = 18 + 42 = $60.
+        """
+        conn = temp_db.get_connection()
+        conn.execute(
+            """INSERT INTO token_usage
+                   (model_id, match_key, total_input_tokens, total_output_tokens,
+                    total_cost, call_count, updated_at)
+               VALUES ('claude-sonnet-5', 'claudesonnet5', 1000000, 1000000, 0, 1,
+                       strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"""
+        )
+        conn.execute(
+            """INSERT INTO token_usage
+                   (model_id, match_key, total_input_tokens, total_output_tokens,
+                    total_cost, call_count, updated_at)
+               VALUES ('claude-sonnet-5-20250620', 'claudesonnet5', 1000000, 1000000, 42.0, 1,
+                       strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"""
+        )
+        conn.execute(
+            """INSERT INTO stats (key, value, updated_at)
+               VALUES ('total_llm_cost', 42.0, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+               ON CONFLICT(key) DO UPDATE SET value = 42.0"""
+        )
+        conn.execute(
+            "DELETE FROM schema_migrations WHERE name = 'recompute_sonnet5_fable5_token_cost'"
+        )
+        conn.commit()
+
+        temp_db._run_recompute_sonnet5_fable5_token_cost(conn)
+
+        base = conn.execute(
+            "SELECT total_cost FROM token_usage WHERE model_id = 'claude-sonnet-5'"
+        ).fetchone()
+        dated = conn.execute(
+            "SELECT total_cost FROM token_usage WHERE model_id = 'claude-sonnet-5-20250620'"
+        ).fetchone()
+        stat = conn.execute(
+            "SELECT value FROM stats WHERE key = 'total_llm_cost'"
+        ).fetchone()
+
+        assert abs(base['total_cost'] - 18.0) < 0.001   # recomputed from its own tokens
+        assert abs(dated['total_cost'] - 42.0) < 0.001  # untouched: was already nonzero
+        assert abs(stat['value'] - 60.0) < 0.001        # 18 + 42
+
 
 class MockStorage:
     """Mock storage for delete/cleanup tests."""

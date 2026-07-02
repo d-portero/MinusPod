@@ -340,7 +340,13 @@ class SettingsMixin:
             logger.info(f"Seeded {inserted} default model pricing entries")
 
     def upsert_fetched_pricing(self, models: List[Dict], source: str):
-        """Bulk upsert pricing fetched from an external source. Rejects negative rows (#237)."""
+        """Bulk upsert pricing fetched from an external source. Rejects negative rows (#237).
+
+        Each row may carry a '_source' key (set by fetch_pricing_chain to record
+        which source in the chain actually contributed it). When present it takes
+        precedence over the fallback 'source' parameter so the stored source
+        reflects true provenance rather than always naming the primary source.
+        """
         conn = self.get_connection()
         # Deduplicate by match_key (last entry wins) to avoid PK/UNIQUE conflict
         seen = {}
@@ -355,6 +361,7 @@ class SettingsMixin:
                     m['output_cost_per_mtok'], source,
                 )
                 continue
+            row_source = m.get('_source') or source
             conn.execute(
                 """INSERT INTO model_pricing
                        (model_id, match_key, raw_model_id, display_name,
@@ -368,6 +375,6 @@ class SettingsMixin:
                      source = excluded.source,
                      updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')""",
                 (m['raw_model_id'], m['match_key'], m['raw_model_id'], m['display_name'],
-                 m['input_cost_per_mtok'], m['output_cost_per_mtok'], source)
+                 m['input_cost_per_mtok'], m['output_cost_per_mtok'], row_source)
             )
         conn.commit()
