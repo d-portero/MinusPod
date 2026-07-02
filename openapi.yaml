@@ -5263,8 +5263,24 @@ paths:
                         suggestedType:
                           type: string
                           nullable: true
-                          enum: [show_intro, show_outro]
-                          description: Capture-type hint (show_intro/show_outro for intro/outro; null for recurring)
+                          enum: [show_intro, show_outro, ad_break_boundary, ad_break_start, ad_break_end, content_transition]
+                          description: Capture-type hint; intro/outro get show_intro/show_outro; recurring gets ad-affinity type or null
+                        adBoundaryHits:
+                          type: integer
+                          nullable: true
+                          description: Recurring candidates only -- how many occurrences landed near a known ad boundary
+                        boundaryAffinity:
+                          type: number
+                          format: float
+                          minimum: 0
+                          maximum: 1
+                          nullable: true
+                          description: adBoundaryHits / count; null when no ad history was available
+                        affinitySource:
+                          type: string
+                          nullable: true
+                          enum: [episode, siblings]
+                          description: Whether affinity was computed from the scanned episode's own ad history or from sibling episodes
         '404':
           description: Feed or original audio not found
 

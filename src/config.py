@@ -191,6 +191,17 @@ AUDIO_CUE_ONSET_LAG_SECONDS = 0.2    # ebur128 momentary loudness integrates ove
 # dip below 0.85 with background beds) against false positives (non-cue audio
 # sits near 0.0). Tuneable via the audio_cue_template_score DB setting.
 AUDIO_CUE_TEMPLATE_SCORE = 0.75
+# Ad-affinity typing for recurring cue candidates (#350 Phase 4). A recurring
+# candidate's occurrence is counted as a "hit" if it lands within
+# TOLERANCE_SECONDS of any known ad boundary (start or end). Candidates with
+# affinity >= MIN_FRACTION and hits >= 2 get a suggestedType; those below get
+# content_transition. PHASE_FRACTION controls start/end disambiguation: if
+# >= PHASE_FRACTION of hits are near a start boundary, the type is
+# ad_break_start; if >= PHASE_FRACTION are near an end boundary, ad_break_end;
+# otherwise ad_break_boundary.
+AUDIO_CUE_AD_AFFINITY_TOLERANCE_SECONDS = 5.0
+AUDIO_CUE_AD_AFFINITY_MIN_FRACTION = 0.6
+AUDIO_CUE_AD_AFFINITY_PHASE_FRACTION = 0.8
 # Voiceover-robust matching (#350): global formant-band (800-3400 Hz) attenuation
 # in dB applied to saved-template matching so a cue keys on its constant music bed
 # despite a varying voiceover. 0.0 = off (default; existing/ding/full-spectrum cues

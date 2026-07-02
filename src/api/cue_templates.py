@@ -14,6 +14,7 @@ Routes mounted under the ``/api/v1`` blueprint:
 import io
 import json
 import logging
+import os
 import threading
 import wave
 import zipfile
@@ -32,7 +33,10 @@ from audio_analysis.cue_features import (
 from audio_analysis.cue_template_matcher import (
     AudioCueTemplateMatcher, DEFAULT_MATCH_SCORE,
 )
-from audio_analysis.cue_candidates import merge_cue_candidates
+from audio_analysis.cue_candidates import (
+    merge_cue_candidates, annotate_recurring_with_ad_affinity,
+    count_ad_boundary_hits,
+)
 from audio_analysis.cue_speech_filter import is_likely_speech
 from audio_analysis.cue_detector import AudioCueDetector
 from audio_analysis.detected_cues import build_detected_cues
@@ -62,6 +66,11 @@ from config import (
     is_template_cue,
     AUDIO_CUE_SUGGEST_FLOOR, AUDIO_CUE_SUGGEST_MAX_EPISODES,
     AUDIO_CUE_EFFECT_FLOOR, AUDIO_CUE_SNAP_CONFIDENCE, AUDIO_CUE_PAIR_CONFIDENCE,
+    AUDIO_CUE_TEMPLATE_SCORE,
+    AUDIO_CUE_TYPE_CONTENT_TRANSITION,
+    AUDIO_CUE_AD_AFFINITY_TOLERANCE_SECONDS,
+    AUDIO_CUE_AD_AFFINITY_MIN_FRACTION,
+    AUDIO_CUE_AD_AFFINITY_PHASE_FRACTION,
 )
 from utils.constants import EpisodeStatus
 from utils.validation import is_valid_episode_id
@@ -789,6 +798,133 @@ def _completed_sibling_audio_paths(db, storage, slug, episode_id):
     return paths
 
 
+# Number of top recurring candidates to run sibling matching against.
+_AFFINITY_SIBLING_TOP_N = 5
+# Max siblings to pull ad history from for sibling-fallback affinity.
+_AFFINITY_SIBLING_MAX = 2
+
+
+def _sibling_affinity_fallback(recurring, slug, episode_id, db, storage, audio_path):
+    """Compute ad-boundary affinity using up to 2 recent sibling episodes.
+
+    Used only when the scanned episode has no usable ad history. Builds ephemeral
+    MFCC templates for the top 5 recurring candidates (no DB writes), runs one
+    template-matcher pass per sibling with all templates at once (the episode
+    decode dominates the cost, so 2 decodes total instead of 5x2), and pools
+    hit/count across siblings to compute affinity. Cleanly skipped when no
+    sibling has both ad history and retained audio. Annotates
+    affinitySource='siblings' on candidates that got sibling evidence.
+    """
+    if not recurring:
+        return recurring
+    for c in recurring:
+        c.pop('occurrences', None)
+        c['adBoundaryHits'] = None
+        c['boundaryAffinity'] = None
+        c['affinitySource'] = None
+
+    # Recent siblings with BOTH stored ad markers and retained original audio.
+    sibling_rows = db.get_recent_episode_ad_history(
+        slug, exclude_episode_id=episode_id,
+        limit=AUDIO_CUE_XEP_SIBLING_LOOKBACK)
+    usable_siblings = []
+    for row in sibling_rows:
+        sib_eid = row['episode_id']
+        sib_ep = db.get_episode(slug, sib_eid)
+        if not sib_ep or not sib_ep.get('original_file'):
+            continue
+        sib_path = str(storage.get_original_path(slug, sib_eid))
+        if not os.path.exists(sib_path):
+            continue
+        try:
+            ad_spans = json.loads(row['ad_markers_json'])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(ad_spans, list) or not ad_spans:
+            continue
+        usable_siblings.append({'path': sib_path, 'ad_spans': ad_spans})
+        if len(usable_siblings) >= _AFFINITY_SIBLING_MAX:
+            break
+    if not usable_siblings:
+        return recurring
+
+    top = recurring[:_AFFINITY_SIBLING_TOP_N]
+    rest = recurring[_AFFINITY_SIBLING_TOP_N:]
+
+    # One ephemeral template row per top candidate; row id = index into `top`
+    # so matcher signals map back via details['template_id'].
+    rows = []
+    for idx, c in enumerate(top):
+        try:
+            pcm = decode_pcm_window(audio_path, c['start'], c['end'], SAMPLE_RATE_HZ)
+            mfcc = compute_mfcc(pcm)
+        except Exception:
+            logger.debug('sibling affinity: failed to decode candidate [%s-%s]',
+                         c.get('start'), c.get('end'))
+            continue
+        if mfcc.shape[0] < 3:
+            continue
+        rows.append({
+            'id': idx,
+            'label': f"candidate-{c['start']}-{c['end']}",
+            'cue_type': 'ad_break_boundary',
+            'duration_s': c['end'] - c['start'],
+            'sample_rate': SAMPLE_RATE_HZ,
+            'n_coeffs': N_COEFFS,
+            'mfcc_blob': serialize_mfcc(mfcc),
+            'pcm_blob': None,
+        })
+    if not rows:
+        return recurring
+
+    score_threshold = db.get_setting_float(
+        'audio_cue_template_score', AUDIO_CUE_TEMPLATE_SCORE)
+    matcher = AudioCueTemplateMatcher(rows, score_threshold=score_threshold)
+    pooled_hits = {r['id']: 0 for r in rows}
+    pooled_count = {r['id']: 0 for r in rows}
+    if matcher.is_usable:
+        for sib in usable_siblings:
+            try:
+                signals = matcher.detect(sib['path'])
+            except Exception:
+                logger.debug('sibling affinity: matcher failed for sibling %s',
+                             sib['path'])
+                continue
+            positions = {r['id']: [] for r in rows}
+            for s in signals:
+                idx = (s.details or {}).get('template_id')
+                if idx in positions:
+                    positions[idx].append(s.start)
+            # Same hit definition as the within-episode annotator, applied to
+            # this sibling's match positions vs its own ad spans, then pooled.
+            for idx, pos in positions.items():
+                if not pos:
+                    continue
+                hits, _, _ = count_ad_boundary_hits(
+                    pos, sib['ad_spans'], AUDIO_CUE_AD_AFFINITY_TOLERANCE_SECONDS)
+                pooled_hits[idx] += hits
+                pooled_count[idx] += len(pos)
+
+    for idx, c in enumerate(top):
+        count = pooled_count.get(idx, 0)
+        if count <= 0:
+            continue  # no sibling evidence for this candidate; leave untyped
+        hits = pooled_hits[idx]
+        affinity = hits / count
+        c['adBoundaryHits'] = hits
+        c['boundaryAffinity'] = round(affinity, 3)
+        c['affinitySource'] = 'siblings'
+        if hits >= 2 and affinity >= AUDIO_CUE_AD_AFFINITY_MIN_FRACTION:
+            # No per-occurrence start/end phase data when pooling across
+            # siblings, so the typed result is always the two-sided boundary.
+            c['suggestedType'] = 'ad_break_boundary'
+        else:
+            c['suggestedType'] = AUDIO_CUE_TYPE_CONTENT_TRANSITION
+
+    top.sort(key=lambda c: (-(c.get('boundaryAffinity') or 0), -(c.get('count') or 0)))
+    return top + rest
+
+
 def _drop_speechlike_recurring(recurring, audio_path):
     """Drop recurring candidates that are plainly speech (common phrases), #350.
 
@@ -867,6 +1003,34 @@ def _run_cue_candidate_scan(podcast_id, episode_id, slug, audio_path,
         # Drop within-episode candidates that are just common spoken phrases (#350);
         # the cross-episode intro/outro pass below is exempt (intros can be spoken).
         recurring = _drop_speechlike_recurring(recurring, audio_path)
+        # Phase 4: ad-affinity typing -- annotate recurring candidates with
+        # suggestedType based on proximity to known ad boundaries.
+        episode_ad_spans = []
+        episode_row = db.get_episode(slug, episode_id)
+        if episode_row:
+            raw_json = episode_row.get('ad_markers_json')
+            try:
+                parsed = json.loads(raw_json) if raw_json else []
+                if isinstance(parsed, list):
+                    episode_ad_spans = parsed
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    'cue candidate scan: unparseable ad_markers_json for %s/%s',
+                    slug, episode_id)
+        if episode_ad_spans:
+            recurring = annotate_recurring_with_ad_affinity(
+                recurring, episode_ad_spans,
+                tolerance_s=AUDIO_CUE_AD_AFFINITY_TOLERANCE_SECONDS,
+                min_fraction=AUDIO_CUE_AD_AFFINITY_MIN_FRACTION,
+                phase_fraction=AUDIO_CUE_AD_AFFINITY_PHASE_FRACTION,
+            )
+            for c in recurring:
+                if c.get('affinitySource') is None and c.get('adBoundaryHits') is not None:
+                    c['affinitySource'] = 'episode'
+        else:
+            # Sibling fallback: only when scanned episode has no ad history.
+            recurring = _sibling_affinity_fallback(
+                recurring, slug, episode_id, db, storage, audio_path)
         try:
             siblings = _completed_sibling_audio_paths(db, storage, slug, episode_id)
             cross_episode = fp.discover_cross_episode_cues(
@@ -905,7 +1069,10 @@ def _run_cue_candidate_scan(podcast_id, episode_id, slug, audio_path,
 # 3: per-zone intro/outro caps (#350 Phase 3) -- old caches used a shared
 #    AUDIO_CUE_XEP_MAX_DURATION=30s cap for both zones; the new per-DB-setting
 #    caps may produce longer suggestions, so old caches are stale.
-CUE_CANDIDATE_SCHEMA_VERSION = 3
+# 4: ad-affinity typing (#350 Phase 4) -- recurring candidates now carry
+#    suggestedType, adBoundaryHits, boundaryAffinity, affinitySource; old
+#    caches lack these fields, so force a rescan to populate them.
+CUE_CANDIDATE_SCHEMA_VERSION = 4
 
 
 def _candidates_are_current(candidates):

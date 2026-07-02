@@ -100,3 +100,14 @@ def test_per_zone_caps_intro_max():
     assert len(intros) >= 1  # fixture must produce at least one intro match
     for intro in intros:
         assert (intro['end'] - intro['start']) <= 4.5  # 4.0s cap + half window tolerance
+
+
+def test_discover_repeats_includes_occurrences():
+    """Each candidate must carry onset-aligned occurrences for ad-affinity typing."""
+    arr = _planted_array([80, 320, 560])
+    candidates = _discover_repeats(arr, FP_DURATION, similarity=0.75, min_count=3)
+    assert candidates, 'expected at least one candidate'
+    for c in candidates:
+        assert 'occurrences' in c
+        assert isinstance(c['occurrences'], list)
+        assert len(c['occurrences']) >= 2

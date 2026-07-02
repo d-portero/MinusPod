@@ -241,12 +241,19 @@ export interface CueCandidate {
   count?: number;          // recurring: times the sound recurs within the episode
   episodeMatches?: number; // intro/outro: how many sibling episodes share it
   suggestedType?: CueTemplateType | null;  // capture-type hint
+  adBoundaryHits?: number | null;    // recurring: occurrences near a known ad boundary
+  boundaryAffinity?: number | null;  // adBoundaryHits / count; null = no ad history
+  affinitySource?: 'episode' | 'siblings' | null;  // where affinity data came from
 }
 
 // Short badge label for a candidate.
 export function cueCandidateLabel(c: CueCandidate): string {
   if (c.kind === 'intro') return `Intro (in ${c.episodeMatches ?? '?'} eps)`;
   if (c.kind === 'outro') return `Outro (in ${c.episodeMatches ?? '?'} eps)`;
+  if (c.kind === 'recurring' && c.boundaryAffinity != null && c.adBoundaryHits != null) {
+    const sibling = c.affinitySource === 'siblings' ? ' (from recent episodes)' : '';
+    return `Repeats ${c.count ?? '?'}x -- ${c.adBoundaryHits} of ${c.count ?? '?'} at known ad breaks${sibling}`;
+  }
   return `Repeats ${c.count ?? '?'}x`;
 }
 

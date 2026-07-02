@@ -355,6 +355,7 @@ def _discover_repeats(raw_ints, fp_duration, similarity, min_count):
             'start': round(start_s, 2),
             'end': round(start_s + length / fps, 2),
             'count': len(hits),
+            'occurrences': [round(sh / fps, 2) for sh in seg_hits],
         })
     candidates.sort(key=lambda c: -c['count'])
     return candidates[:AUDIO_CUE_FP_MAX_CANDIDATES]
