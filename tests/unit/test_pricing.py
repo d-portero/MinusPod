@@ -116,17 +116,17 @@ class TestGetPricingSource:
         assert result['type'] == 'pricepertoken'
         assert 'together' in result['url']
 
-    def test_localhost_is_free(self):
+    def test_localhost_is_litellm_not_free(self):
         result = get_pricing_source('openai-compatible', 'http://localhost:11434/v1')
-        assert result['type'] == 'free'
+        assert result['type'] == 'litellm'
 
-    def test_127_0_0_1_is_free(self):
+    def test_127_0_0_1_is_litellm(self):
         result = get_pricing_source('openai-compatible', 'http://127.0.0.1:8000/v1')
-        assert result['type'] == 'free'
+        assert result['type'] == 'litellm'
 
-    def test_local_domain_is_free(self):
+    def test_local_domain_is_litellm(self):
         result = get_pricing_source('openai-compatible', 'http://my-server.local:8000/v1')
-        assert result['type'] == 'free'
+        assert result['type'] == 'litellm'
 
     def test_unknown_public_domain_is_litellm_not_free(self):
         """Unknown public openai-compatible domain falls to LiteLLM, never bare free."""
@@ -146,13 +146,13 @@ class TestGetPricingSource:
         result = get_pricing_source('openai-compatible', 'https://openrouter.ai/api/v1')
         assert result['type'] == 'openrouter_api'
 
-    def test_rfc1918_private_ip_is_free(self):
+    def test_rfc1918_private_ip_is_litellm(self):
         result = get_pricing_source('openai-compatible', 'http://192.168.1.10:8000/v1')
-        assert result['type'] == 'free'
+        assert result['type'] == 'litellm'
 
-    def test_lan_domain_is_free(self):
+    def test_lan_domain_is_litellm(self):
         result = get_pricing_source('openai-compatible', 'http://box.lan:8000/v1')
-        assert result['type'] == 'free'
+        assert result['type'] == 'litellm'
 
 
 class TestGetPricingSources:
@@ -186,10 +186,55 @@ class TestGetPricingSources:
         assert [s['type'] for s in chain] == ['litellm']
         assert 'provider_filter' not in chain[0]
 
-    def test_localhost_chain_is_free_only(self):
+    def test_localhost_chain_is_litellm(self):
         from config import get_pricing_sources
         chain = get_pricing_sources('openai-compatible', 'http://localhost:11434/v1')
+        assert [s['type'] for s in chain] == ['litellm']
+
+    def test_rfc1918_chain_is_litellm(self):
+        from config import get_pricing_sources
+        chain = get_pricing_sources('openai-compatible', 'http://192.168.1.10:8000/v1')
+        assert [s['type'] for s in chain] == ['litellm']
+
+
+class TestPricingSourceMode:
+    """Test pricing_source_mode override (auto/litellm/free)."""
+
+    def test_mode_free_returns_free_for_any_provider(self):
+        from config import get_pricing_sources
+        with patch('config._get_pricing_source_mode', return_value='free'):
+            assert [s['type'] for s in get_pricing_sources('openai-compatible', 'http://192.168.1.10/v1')] == ['free']
+            assert [s['type'] for s in get_pricing_sources('anthropic')] == ['free']
+            assert [s['type'] for s in get_pricing_sources('openrouter')] == ['free']
+
+    def test_mode_litellm_returns_litellm_for_any_provider(self):
+        from config import get_pricing_sources
+        with patch('config._get_pricing_source_mode', return_value='litellm'):
+            assert [s['type'] for s in get_pricing_sources('anthropic')] == ['litellm']
+            assert [s['type'] for s in get_pricing_sources('openai-compatible', 'https://api.openai.com/v1')] == ['litellm']
+
+    def test_mode_auto_ollama_still_free(self):
+        from config import get_pricing_sources
+        with patch('config._get_pricing_source_mode', return_value='auto'):
+            chain = get_pricing_sources('ollama')
         assert [s['type'] for s in chain] == ['free']
+
+    def test_mode_auto_lan_is_litellm(self):
+        from config import get_pricing_sources
+        with patch('config._get_pricing_source_mode', return_value='auto'):
+            chain = get_pricing_sources('openai-compatible', 'http://192.168.1.10:8000/v1')
+        assert [s['type'] for s in chain] == ['litellm']
+
+    def test_db_error_falls_back_to_auto(self):
+        from config import _get_pricing_source_mode
+        with patch('config._get_pricing_source_mode', side_effect=Exception('db gone')):
+            # The real function should tolerate missing DB; test the guard path via
+            # the public API instead -- auto mode should produce litellm for LAN.
+            pass
+        # Verify _get_pricing_source_mode handles its own exception path
+        with patch('database.Database', side_effect=Exception('db gone')):
+            result = _get_pricing_source_mode()
+        assert result == 'auto'
 
 
 class TestFetchPricingChain:
@@ -470,6 +515,29 @@ class TestSeedDefaultPricing:
         ).fetchone()
         assert row['input_cost_per_mtok'] == 99.0
         assert row['source'] == 'pricepertoken'
+
+    def test_upsert_updates_source_on_conflict(self):
+        """A second upsert for the same match_key updates source to reflect new provenance."""
+        from database.settings import SettingsMixin
+
+        conn = self._create_test_db()
+        mixin = SettingsMixin()
+        mixin.get_connection = lambda: conn
+
+        row = {
+            'match_key': 'testmodel',
+            'raw_model_id': 'test-model',
+            'display_name': 'Test Model',
+            'input_cost_per_mtok': 1.0,
+            'output_cost_per_mtok': 2.0,
+        }
+        mixin.upsert_fetched_pricing([row], source='openrouter_api')
+        assert conn.execute("SELECT source FROM model_pricing WHERE match_key='testmodel'").fetchone()['source'] == 'openrouter_api'
+
+        mixin.upsert_fetched_pricing([{**row, 'input_cost_per_mtok': 1.5}], source='litellm')
+        r = conn.execute("SELECT source, input_cost_per_mtok FROM model_pricing WHERE match_key='testmodel'").fetchone()
+        assert r['source'] == 'litellm'
+        assert r['input_cost_per_mtok'] == 1.5
 
     def test_backfill_fills_gap_left_by_live_fetch(self):
         """A live fetch missing claudeopus48 gets it backfilled at 5/25 (source=default)."""

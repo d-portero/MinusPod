@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.32.3] - 2026-07-02
+
+### Fixed
+
+- LAN and localhost base URLs were classified as free by an address-locality heuristic, causing a paid Claude proxy on a LAN gateway to be treated as a zero-cost endpoint and skipping all pricing refreshes. Address locality no longer implies cost. A new `pricing_source_mode` setting (auto/litellm/free, default auto) lets operators declare intent explicitly; auto applies provider-based rules as before, free is the self-hosted escape hatch that the old heuristic tried to infer. Refreshed pricing rows now always update the source column on conflict so provenance stays current.
+
 ## [2.32.2] - 2026-07-02
 
 ### Fixed

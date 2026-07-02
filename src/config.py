@@ -3,7 +3,6 @@
 All magic numbers and thresholds should be defined here
 for easy tuning and consistency across the codebase.
 """
-import ipaddress
 import logging
 import os
 import re
@@ -671,18 +670,17 @@ def _openrouter_source() -> dict:
     return {'type': 'openrouter_api', 'url': 'https://openrouter.ai/api/v1/models'}
 
 
-def _is_local_domain(domain: str) -> bool:
-    """True for loopback, .local/.lan, or RFC1918 private-range hosts."""
-    if not domain:
-        return False
-    if domain in ('localhost', '127.0.0.1', '::1'):
-        return True
-    if domain.endswith('.local') or domain.endswith('.lan'):
-        return True
+def _get_pricing_source_mode() -> str:
+    """Read pricing_source_mode from DB; fall back to 'auto' on any error."""
     try:
-        return ipaddress.ip_address(domain).is_private
-    except ValueError:
-        return False
+        from database import Database
+        db = Database()
+        val = db.get_setting('pricing_source_mode')
+        if val in ('auto', 'litellm', 'free'):
+            return val
+    except Exception:
+        pass
+    return 'auto'
 
 
 def get_pricing_sources(provider: str, base_url: str = '') -> list:
@@ -694,10 +692,16 @@ def get_pricing_sources(provider: str, base_url: str = '') -> list:
       'provider_filter': litellm_provider to filter on (litellm only, optional)
 
     Chain semantics: fetch each source in order, first source with a key wins,
-    later sources only fill gaps. Unknown PUBLIC endpoints fall to LiteLLM
-    (never bare 'free') so refresh is never permanently skipped -- the pricing
-    table stays live. Only demonstrably local/self-hosted endpoints map to free.
+    later sources only fill gaps. Address locality never implies cost; use
+    pricing_source_mode='free' explicitly for self-hosted local models.
     """
+    mode = _get_pricing_source_mode()
+    if mode == 'free':
+        return [{'type': 'free'}]
+    if mode == 'litellm':
+        return [dict(_LITELLM_SOURCE)]
+
+    # mode == 'auto': pick by provider/domain.
     if provider == PROVIDER_OLLAMA:
         return [{'type': 'free'}]
 
@@ -727,10 +731,7 @@ def get_pricing_sources(provider: str, base_url: str = '') -> list:
                 dict(_LITELLM_SOURCE),
             ]
 
-    if _is_local_domain(domain):
-        return [{'type': 'free'}]
-
-    # Unknown PUBLIC domain -- unfiltered LiteLLM, never bare free.
+    # Unknown domain (including LAN/localhost) -- unfiltered LiteLLM.
     return [dict(_LITELLM_SOURCE)]
 
 
