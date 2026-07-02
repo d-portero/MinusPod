@@ -1,7 +1,13 @@
 """Unit tests for the cue boundary snap module (#350)."""
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
-import pytest
+# test_settings_plumbing_snap_receives_db_values imports main_app.processing
+# which tries to mkdir /app/data at module-load unless DATA_PATH or
+# MINUSPOD_DATA_DIR is set first (same boot pattern as test_recut_ad_list.py).
+os.environ.setdefault('MINUSPOD_DATA_DIR', tempfile.mkdtemp(prefix='snap_unit_test_'))
+os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 from ad_detector.cue_boundary_snap import (
     snap_ad_boundaries_to_cues,
@@ -235,11 +241,11 @@ def test_nearest_first_beats_farther_higher_confidence_cue():
 def test_tie_broken_by_confidence():
     """Two cues within the same 0.1s distance bucket: higher confidence wins."""
     ad_start = 100.0
-    # Both have cue.end within 0.1s of each other relative to ad_start.
-    # cue_a.end = 97.05 -> distance = 2.95, rounds to 3.0
-    # cue_b.end = 97.00 -> distance = 3.00, rounds to 3.0 -- same bucket
-    cue_a = _cue(start=96.5, end=97.05, conf=0.95)
-    cue_b = _cue(start=96.4, end=97.00, conf=0.82)
+    # Both cue ends are safely within the same 0.1s bucket.
+    # cue_a.end = 97.10 -> distance = 2.90, rounds to 2.9
+    # cue_b.end = 97.06 -> distance = 2.94, rounds to 2.9 -- same bucket
+    cue_a = _cue(start=96.5, end=97.10, conf=0.95)
+    cue_b = _cue(start=96.4, end=97.06, conf=0.82)
 
     best, n = _pick_cue_for_start([cue_a, cue_b], ad_start, ad_end=200.0,
                                    snap_lead_s=10.0, snap_lag_s=4.0)
@@ -300,32 +306,56 @@ def test_single_cue_no_ambiguous_key():
 
 
 def test_settings_plumbing_snap_receives_db_values():
-    """snap_ad_boundaries_to_cues is called with the live DB lead/lag values."""
-    from unittest.mock import call
+    """processing._detect_ads_first_pass threads DB lead/lag into snap_ad_boundaries_to_cues.
 
-    # Build a minimal ad and cue that will trigger a snap.
-    ads = [{'start': 100.0, 'end': 160.0}]
-    result = _result_with(_cue(start=93.0, end=94.0, conf=0.90))
+    Patches the DB settings accessor and the snap function itself so that if
+    processing.py stops reading or forwarding the DB values the mock assertion
+    will fail.
+    """
+    from main_app import processing
 
-    calls = []
-
-    original_fn = snap_ad_boundaries_to_cues
-
-    def capturing_snap(ad_list, ar, max_shift, snap_lead_s, snap_lag_s, min_confidence=0.8):
-        calls.append({'snap_lead_s': snap_lead_s, 'snap_lag_s': snap_lag_s})
-        return original_fn(ad_list, ar, max_shift,
-                           snap_lead_s=snap_lead_s,
-                           snap_lag_s=snap_lag_s,
-                           min_confidence=min_confidence)
-
-    # Call snap with custom DB values to verify they are threaded through.
     db_lead = 8.0
     db_lag = 3.5
-    capturing_snap(ads, result, 60.0,
-                   snap_lead_s=db_lead, snap_lag_s=db_lag)
 
-    assert calls[0]['snap_lead_s'] == db_lead
-    assert calls[0]['snap_lag_s'] == db_lag
+    mock_snap = MagicMock(return_value=None)
+
+    def fake_get_setting_float(key, default=None):
+        if key == 'audio_cue_snap_lead_seconds':
+            return db_lead
+        if key == 'audio_cue_snap_lag_seconds':
+            return db_lag
+        return default
+
+    ctx = MagicMock()
+    ctx.slug = 'test-feed'
+    ctx.episode_id = 'ep-1'
+    ctx.podcast_id = None  # skips telemetry branch (no db.record_cue_detections call)
+
+    audio_result = _result_with(_cue(start=93.0, end=94.0, conf=0.90))
+    ad_result_stub = {'status': 'success', 'ads': [{'start': 100.0, 'end': 160.0}]}
+
+    with patch.object(processing.db, 'get_setting_float', side_effect=fake_get_setting_float), \
+         patch.object(processing.db, 'get_setting_bool', return_value=False), \
+         patch.object(processing.db, 'get_setting', return_value=None), \
+         patch.object(processing.db, 'upsert_episode', return_value=1), \
+         patch.object(processing.status_service, 'update_job_stage'), \
+         patch.object(processing.ad_detector, 'process_transcript',
+                      return_value=ad_result_stub), \
+         patch.object(processing, 'snap_ad_boundaries_to_cues', mock_snap):
+        processing._detect_ads_first_pass(
+            ctx, [], '/fake/audio.mp3',
+            skip_patterns=[], audio_analysis_result=audio_result,
+            progress_callback=None,
+        )
+
+    mock_snap.assert_called_once()
+    _, kwargs = mock_snap.call_args
+    assert kwargs['snap_lead_s'] == db_lead, (
+        f"expected snap_lead_s={db_lead}, got {kwargs.get('snap_lead_s')}"
+    )
+    assert kwargs['snap_lag_s'] == db_lag, (
+        f"expected snap_lag_s={db_lag}, got {kwargs.get('snap_lag_s')}"
+    )
 
 
 def test_telemetry_out_of_reach_follows_settings():
