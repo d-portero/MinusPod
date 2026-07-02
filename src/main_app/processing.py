@@ -14,7 +14,11 @@ from ad_detector import (
     refine_ad_boundaries, snap_early_ads_to_zero, merge_same_sponsor_ads,
     extend_ad_boundaries_by_content,
 )
-from ad_detector.cue_boundary_snap import snap_ad_boundaries_to_cues
+from ad_detector.cue_boundary_snap import (
+    snap_ad_boundaries_to_cues,
+    DEFAULT_SNAP_LEAD_SECONDS,
+    DEFAULT_SNAP_LAG_SECONDS,
+)
 from ad_detector.cue_pair_ads import synthesize_ads_from_cue_pairs
 from ad_detector.cue_telemetry import build_cue_detection_records
 from ad_reviewer import (
@@ -423,6 +427,8 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
     # distance to the LLM/synth ad edge it *would* have moved (snap mutates the
     # live list in place). Captured whenever cue detection ran (#350 Phase 6).
     snap_confidence = db.get_setting_float('audio_cue_snap_confidence', AUDIO_CUE_SNAP_CONFIDENCE)
+    snap_lead = db.get_setting_float('audio_cue_snap_lead_seconds', DEFAULT_SNAP_LEAD_SECONDS)
+    snap_lag = db.get_setting_float('audio_cue_snap_lag_seconds', DEFAULT_SNAP_LAG_SECONDS)
     pre_snap_ads = ([{'start': a.get('start'), 'end': a.get('end')} for a in first_pass_ads]
                     if audio_analysis_result else [])
     if first_pass_ads and audio_analysis_result:
@@ -436,6 +442,8 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
             snap_ad_boundaries_to_cues(
                 first_pass_ads, audio_analysis_result, max_shift,
                 min_confidence=snap_confidence,
+                snap_lead_s=snap_lead,
+                snap_lag_s=snap_lag,
             )
         except Exception as e:
             audio_logger.warning(
@@ -454,6 +462,8 @@ def _detect_ads_first_pass(ctx, segments, audio_path,
                 pre_snap_ads=pre_snap_ads,
                 pair_skip_diagnostics=cue_pair_skip_diagnostics,
                 snap_confidence=snap_confidence,
+                snap_lead_s=snap_lead,
+                snap_lag_s=snap_lag,
             )
             db.record_cue_detections(podcast_id, episode_id, records)
         except Exception as e:

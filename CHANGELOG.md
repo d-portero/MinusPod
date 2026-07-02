@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.32.0] - 2026-07-02
+
+### Changed
+
+- Snap window widened: audio_cue_snap_lead_seconds default raised from 4.0s to 10.0s; audio_cue_snap_lag_seconds default raised from 2.0s to 4.0s. Both are now DB-settable in [0.5, 30] so the window can be tuned per-deployment without a code change. The telemetry edge_distance field (Phase 6) provides the evidence loop for re-tuning.
+- Cue selection switches to nearest-first ordering (key: -round(distance, 1), confidence) in both _pick_cue_for_start and _pick_cue_for_end. Within the old narrow window confidence-first was acceptable; at 10s a farther higher-confidence cue must not displace a nearer one when all candidates have already cleared the 0.80 confidence floor.
+- When 2+ eligible cues fall in one edge's snap window, the snap record now includes ambiguous: true and candidates: N so the reviewer prompt (Phase 10) can surface the alternatives.
+
+### Added
+
+- Settings keys audio_cue_snap_lead_seconds and audio_cue_snap_lag_seconds with defaults 10.0 and 4.0. Validated in [0.5, 30]. Exposed in GET /settings, PUT /settings/ad-detection, and the Audio Cue Detection settings card.
+
 ## [2.31.7] - 2026-07-02
 
 ### Changed

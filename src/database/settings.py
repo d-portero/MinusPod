@@ -176,6 +176,8 @@ class SettingsMixin:
             'audio_cue_template_score': str(AUDIO_CUE_TEMPLATE_SCORE),
             'audio_cue_formant_atten_db': str(AUDIO_CUE_FORMANT_ATTEN_DB),
             'audio_cue_snap_confidence': str(AUDIO_CUE_SNAP_CONFIDENCE),
+            'audio_cue_snap_lead_seconds': '10.0',
+            'audio_cue_snap_lag_seconds': '4.0',
             'audio_cue_capture_min_seconds': str(AUDIO_CUE_CAPTURE_MIN_SECONDS),
             'audio_cue_capture_max_seconds': str(AUDIO_CUE_CAPTURE_MAX_SECONDS),
             'audio_cue_capture_max_intro_seconds': str(AUDIO_CUE_CAPTURE_MAX_INTRO_SECONDS),

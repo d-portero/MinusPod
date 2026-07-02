@@ -12,7 +12,7 @@ info:
     - Monitor system status and trigger cleanup operations
     - Manage cross-episode ad patterns with network and podcast scope
     - Submit corrections to improve ad detection accuracy
-  version: 2.31.7
+  version: 2.32.0
   contact:
     name: MinusPod
   license:
@@ -3048,6 +3048,18 @@ paths:
                   description: Min cue confidence before a cue may move an ad edge (default 0.80).
                   minimum: 0
                   maximum: 1
+                audioCueSnapLeadSeconds:
+                  type: number
+                  description: How far back from the ad edge a cue may sit to be eligible for snapping (default 10.0s).
+                  example: 10.0
+                  minimum: 0.5
+                  maximum: 30
+                audioCueSnapLagSeconds:
+                  type: number
+                  description: How far past the ad edge a cue may sit to be eligible for snapping (default 4.0s).
+                  example: 4.0
+                  minimum: 0.5
+                  maximum: 30
                 audioCueCaptureMinSeconds:
                   type: number
                   description: Shortest cue a user may bracket (default 0.2s).
@@ -6355,6 +6367,22 @@ components:
         audioCueSnapConfidence:
           type: object
           description: Min cue confidence before a cue may move an ad edge (default 0.80).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueSnapLeadSeconds:
+          type: object
+          description: How far back from the ad edge a cue may sit to be eligible for snapping, seconds (default 10.0).
+          properties:
+            value:
+              type: number
+            isDefault:
+              type: boolean
+        audioCueSnapLagSeconds:
+          type: object
+          description: How far past the ad edge a cue may sit to be eligible for snapping, seconds (default 4.0).
           properties:
             value:
               type: number

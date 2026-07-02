@@ -224,6 +224,8 @@ export interface Settings {
   audioCueTemplateScore: SettingValueNumber;
   audioCueFormantAttenDb: SettingValueNumber;
   audioCueSnapConfidence: SettingValueNumber;
+  audioCueSnapLeadSeconds: SettingValueNumber;
+  audioCueSnapLagSeconds: SettingValueNumber;
   audioCueCaptureMinSeconds: SettingValueNumber;
   audioCueCaptureMaxSeconds: SettingValueNumber;
   audioCueCaptureMaxIntroSeconds: SettingValueNumber;
@@ -295,6 +297,8 @@ export interface Settings {
     audioCueTemplateScore: number;
     audioCueFormantAttenDb: number;
     audioCueSnapConfidence: number;
+    audioCueSnapLeadSeconds: number;
+    audioCueSnapLagSeconds: number;
     audioCueCaptureMinSeconds: number;
     audioCueCaptureMaxSeconds: number;
     audioCueCaptureMaxIntroSeconds: number;
@@ -344,6 +348,8 @@ export interface UpdateSettingsPayload {
   audioCueTemplateScore?: number;
   audioCueFormantAttenDb?: number;
   audioCueSnapConfidence?: number;
+  audioCueSnapLeadSeconds?: number;
+  audioCueSnapLagSeconds?: number;
   audioCueCaptureMinSeconds?: number;
   audioCueCaptureMaxSeconds?: number;
   audioCueCaptureMaxIntroSeconds?: number;
