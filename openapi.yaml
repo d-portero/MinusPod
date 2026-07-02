@@ -5667,8 +5667,9 @@ components:
         hasAudio:
           type: boolean
           description: >
-            Listing only. True when the template has a stored PCM blob (play
-            button is shown only when true or absent for older server rows).
+            True when the template has a stored PCM blob (play button is shown
+            only when true or absent for older server rows). Present on both
+            listing and create responses.
         selfMatchCount:
           type: integer
           description: >
