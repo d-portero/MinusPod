@@ -473,7 +473,10 @@ class WhisperModelSingleton:
 
     @classmethod
     def get_configured_model(cls) -> str:
-        """Get the configured model from database settings."""
+        """Get the configured model, prioritizing environment variables over DB settings."""
+        env_model = os.getenv("WHISPER_MODEL")
+        if env_model:
+            return env_model
         try:
             from database import Database
             db = Database()
@@ -482,8 +485,7 @@ class WhisperModelSingleton:
                 return model
         except Exception as e:
             logger.warning(f"Could not read whisper_model from database: {e}")
-        # Fall back to env var or default
-        return os.getenv("WHISPER_MODEL", "small")
+        return "small"
 
     @classmethod
     def mark_for_reload(cls):
@@ -1020,8 +1022,30 @@ class Transcriber:
 
     def get_batch_size_for_duration(self, duration_seconds: Optional[float]) -> int:
         """Get optimal batch size based on audio duration to prevent CUDA OOM."""
+        # 1. Prioritize WHISPER_BATCH_SIZE from environment if set
+        env_batch = os.getenv("WHISPER_BATCH_SIZE")
+        if env_batch:
+            try:
+                return max(1, int(env_batch))
+            except (ValueError, TypeError):
+                pass
+
+        # 2. Check GPU memory: if VRAM is low (<= 2.2GB), default to a safe batch size
+        try:
+            device = os.getenv("WHISPER_DEVICE", "cpu")
+            if device == "cuda":
+                available_gb, _ = get_available_memory_gb("cuda")
+                if available_gb and available_gb <= 2.2:
+                    # Low memory GPU (like Quadro P400) -> cap batch size at 8 (or 4 for long episodes)
+                    duration_seconds = duration_seconds or 0
+                    if duration_seconds > 60 * 60:
+                        return 4
+                    return 8
+        except Exception as e:
+            logger.warning(f"Error checking low memory GPU threshold: {e}")
+
+        # 3. Fallback to default tiers
         if duration_seconds is None:
-            # Default to conservative batch size if duration unknown
             return 8
 
         for threshold, batch_size in BATCH_SIZE_TIERS:

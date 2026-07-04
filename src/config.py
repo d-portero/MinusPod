@@ -675,8 +675,8 @@ PROVIDERS_NON_ANTHROPIC = ('openai-compatible', 'ollama')
 # ============================================================
 # Default LLM Models
 # ============================================================
-DEFAULT_AD_DETECTION_MODEL = "claude-sonnet-4-5-20250929"
-DEFAULT_CHAPTERS_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_AD_DETECTION_MODEL = "gemini-2.5-flash"
+DEFAULT_CHAPTERS_MODEL = "gemini-2.5-flash"
 
 # ============================================================
 # User-Agent Strings

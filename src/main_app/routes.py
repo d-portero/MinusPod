@@ -147,6 +147,75 @@ def _head_upstream(slug, episode_id, original_url):
     abort(503)
 
 
+def _filter_processed_rss(xml_data: str, slug: str) -> str:
+    """Filter the RSS feed to only include episodes with status='processed'."""
+    import defusedxml.ElementTree as DefusedET
+    import re
+    import xml.etree.ElementTree as ET
+    from main_app import db
+
+    try:
+        # Get list of processed episode IDs for this feed from database
+        conn = db.get_connection()
+        cursor = conn.execute(
+            """SELECT episode_id FROM episodes
+               WHERE podcast_id = (SELECT id FROM podcasts WHERE slug = ?) AND status = 'processed'""",
+            (slug,)
+        )
+        processed_ids = {row['episode_id'] for row in cursor.fetchall()}
+
+        # Parse the XML
+        root = DefusedET.fromstring(xml_data.encode('utf-8'))
+        channel = root.find('channel')
+        if channel is None:
+            return xml_data
+
+        # Register namespaces to prevent prefix mangling (e.g., ns0:enclosure)
+        namespaces = {
+            'itunes': 'http://www.itunes.com/dtds/podcast-1.0.dtd',
+            'content': 'http://purl.org/rss/1.0/modules/content/',
+            'podcast': 'https://podcastindex.org/namespace/1.0',
+            'atom': 'http://www.w3.org/2005/Atom',
+            'googleplay': 'http://www.google.com/schemas/play-podcasts/1.0',
+            'media': 'http://search.yahoo.com/mrss/',
+        }
+        for prefix, uri in namespaces.items():
+            ET.register_namespace(prefix, uri)
+
+        # Find and remove any <item> that is not processed
+        items = channel.findall('item')
+        removed_count = 0
+        for item in items:
+            enclosure = item.find('enclosure')
+            if enclosure is not None:
+                url = enclosure.get('url', '')
+                # Extract episode_id from the URL: /episodes/<slug>/<episode_id>[-v<N>].mp3
+                match = re.search(r'/episodes/[^/]+/([^/]+?)(?:-v\d+)?\.mp3', url)
+                if match:
+                    ep_id = match.group(1)
+                    if ep_id not in processed_ids:
+                        channel.remove(item)
+                        removed_count += 1
+                else:
+                    # Enclosure is not a local MinusPod proxy URL (i.e. still points to original CDN)
+                    # which means the episode hasn't been processed yet!
+                    channel.remove(item)
+                    removed_count += 1
+            else:
+                # No audio enclosure, remove it
+                channel.remove(item)
+                removed_count += 1
+
+        if removed_count > 0:
+            feed_logger.info(f"[{slug}] Filtered out {removed_count} unprocessed episodes from RSS")
+            # Serialize back to XML string
+            return ET.tostring(root, encoding='utf-8').decode('utf-8')
+    except Exception as e:
+        feed_logger.error(f"[{slug}] Failed to filter processed RSS: {e}")
+
+    return xml_data
+
+
 def register_routes(app):
     """Register all routes on the Flask app."""
     global STATIC_DIR, ROOT_DIR
@@ -288,6 +357,8 @@ def register_routes(app):
             cached_rss = storage.get_rss(slug)
 
         if cached_rss:
+            if request.args.get('processed') in ('1', 'true'):
+                cached_rss = _filter_processed_rss(cached_rss, slug)
             feed_logger.info(f"[{slug}] Serving RSS feed")
             return Response(cached_rss, mimetype='application/rss+xml')
         else:
