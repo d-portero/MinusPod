@@ -434,6 +434,14 @@ class SchemaMixin:
         for col, definition in podcasts_migrations:
             self._add_column_if_missing(conn, 'podcasts', col, definition, pod_cols)
 
+        # -- audio_cue_templates table columns --
+        act_cols = self._get_table_columns(conn, 'audio_cue_templates')
+        act_migrations = [
+            ('score_threshold', 'REAL'),
+        ]
+        for col, definition in act_migrations:
+            self._add_column_if_missing(conn, 'audio_cue_templates', col, definition, act_cols)
+
         # 2.0.19 -> 2.0.20: convert only_expose_processed_episodes from
         # INTEGER DEFAULT 0 to plain nullable INTEGER, treating the previous
         # 0 default as "use global default" (NULL). Explicit per-feed 1

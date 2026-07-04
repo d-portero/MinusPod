@@ -68,6 +68,7 @@ class _Template:
     n_coeffs: int
     cue_type: str
     role: str
+    score_threshold: Optional[float] = None  # per-template override; None = use instance
 
 
 class AudioCueTemplateMatcher:
@@ -125,6 +126,8 @@ class AudioCueTemplateMatcher:
                 )
                 continue
             cue_type = row.get('cue_type') or AUDIO_CUE_TYPE_DEFAULT
+            raw_thr = row.get('score_threshold')
+            per_tpl_threshold = float(raw_thr) if raw_thr is not None else None
             self._templates.append(_Template(
                 template_id=int(row['id']),
                 label=row.get('label') or f"template-{row['id']}",
@@ -133,6 +136,7 @@ class AudioCueTemplateMatcher:
                 n_coeffs=n_coeffs,
                 cue_type=cue_type,
                 role=audio_cue_type_role(cue_type),
+                score_threshold=per_tpl_threshold,
             ))
 
     @property
@@ -283,11 +287,18 @@ class AudioCueTemplateMatcher:
         per_template_near_misses: Dict[int, List[Dict]],
     ) -> None:
         hop_s = FRAME_HOP_MS / 1000.0
-        # Peak-pick down to the near-miss floor when set, so sub-threshold peaks
-        # are visible; otherwise pick at the threshold exactly as before.
-        pick_floor = (min(self.score_threshold, self.near_miss_floor)
-                      if self.near_miss_floor is not None else self.score_threshold)
         for tpl in self._templates:
+            # Effective match threshold: per-template overrides instance when set.
+            eff_threshold = (tpl.score_threshold
+                             if tpl.score_threshold is not None
+                             else self.score_threshold)
+            # Peak-pick floor: lowest of eff_threshold and near_miss_floor so
+            # sub-threshold near-misses are still surfaced when near_miss_floor
+            # is active (especially important when per-template lowers the bar).
+            if self.near_miss_floor is not None:
+                pick_floor = min(eff_threshold, self.near_miss_floor)
+            else:
+                pick_floor = eff_threshold
             if tpl.mfcc.shape[1] != chunk_mfcc.shape[1]:
                 logger.warning(
                     f"Template {tpl.template_id} n_coeffs={tpl.mfcc.shape[1]} "
@@ -309,7 +320,7 @@ class AudioCueTemplateMatcher:
             for frame_idx, score in peaks:
                 start_s = chunk_offset_s + frame_idx * hop_s
                 end_s = start_s + tpl.duration_s
-                if score >= self.score_threshold:
+                if score >= eff_threshold:
                     confidence = float(min(0.99, max(0.0, score)))
                     per_template_matches[tpl.template_id].append(AudioSegmentSignal(
                         start=round(start_s, 3),

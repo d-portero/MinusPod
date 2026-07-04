@@ -70,6 +70,9 @@ function CueTemplatesPanel({ slug }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
+  const [editingThresholdId, setEditingThresholdId] = useState<number | null>(null);
+  const [editThresholdValue, setEditThresholdValue] = useState<string>('');
+  const thresholdCancelledRef = useRef(false);
 
   const togglePlay = (t: CueTemplate) => {
     const audio = audioRef.current;
@@ -116,7 +119,7 @@ function CueTemplatesPanel({ slug }: Props) {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['cue-templates', slug] });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: { cueType?: CueTemplateType; enabled?: boolean; scope?: CueTemplateScope; networkId?: string } }) =>
+    mutationFn: ({ id, patch }: { id: number; patch: { cueType?: CueTemplateType; enabled?: boolean; scope?: CueTemplateScope; networkId?: string; scoreThreshold?: number | null } }) =>
       updateCueTemplate(id, patch),
     onSuccess: invalidate,
     onError: (e) => setActionError(e instanceof Error ? e.message : 'Update failed'),
@@ -152,6 +155,38 @@ function CueTemplatesPanel({ slug }: Props) {
     }
     if (editValue !== template.cueType) {
       updateMutation.mutate({ id: template.id, patch: { cueType: editValue } });
+    }
+  };
+
+  const startEditThreshold = (template: CueTemplate) => {
+    setActionError(null);
+    setEditingThresholdId(template.id);
+    setEditThresholdValue(
+      template.scoreThreshold != null ? String(template.scoreThreshold) : '',
+    );
+  };
+
+  const commitThreshold = (template: CueTemplate) => {
+    setEditingThresholdId(null);
+    if (thresholdCancelledRef.current) {
+      thresholdCancelledRef.current = false;
+      return;
+    }
+    const trimmed = editThresholdValue.trim();
+    // Empty string clears the override (null).
+    if (trimmed === '') {
+      if (template.scoreThreshold != null) {
+        updateMutation.mutate({ id: template.id, patch: { scoreThreshold: null } });
+      }
+      return;
+    }
+    const val = parseFloat(trimmed);
+    if (isNaN(val) || val < 0 || val > 0.99) {
+      setActionError('Score threshold must be a number between 0 and 0.99');
+      return;
+    }
+    if (val !== template.scoreThreshold) {
+      updateMutation.mutate({ id: template.id, patch: { scoreThreshold: val } });
     }
   };
 
@@ -412,6 +447,37 @@ function CueTemplatesPanel({ slug }: Props) {
                         >
                           Change type
                         </button>
+                        {editingThresholdId === t.id ? (
+                          <input
+                            type="number"
+                            autoFocus
+                            min={0}
+                            max={0.99}
+                            step={0.01}
+                            value={editThresholdValue}
+                            onChange={(e) => setEditThresholdValue(e.target.value)}
+                            onBlur={() => commitThreshold(t)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.currentTarget.blur();
+                              if (e.key === 'Escape') {
+                                thresholdCancelledRef.current = true;
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            placeholder="inherit"
+                            className={`w-20 px-2 py-0.5 text-xs ${fieldCls}`}
+                            aria-label="Score threshold"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => startEditThreshold(t)}
+                            title="Per-template match score threshold (empty = inherit feed/global)"
+                          >
+                            Threshold{t.scoreThreshold != null ? `: ${t.scoreThreshold}` : ''}
+                          </button>
+                        )}
                         {confirmDeleteId === t.id ? (
                           <>
                             <button

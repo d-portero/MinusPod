@@ -71,6 +71,7 @@ from config import (
     resolve_cue_template_score,
     resolve_cue_template_score_with_source,
 )
+from database.cue_templates import _UNSET as _CUE_THRESHOLD_UNSET
 from utils.constants import EpisodeStatus
 from utils.validation import is_valid_episode_id
 
@@ -112,22 +113,24 @@ def _resolve_original_audio(db, storage, slug, episode_id):
 
 def _template_to_meta_dict(row: dict) -> dict:
     """Strip the binary blobs for JSON responses."""
+    keys = row.keys() if hasattr(row, 'keys') else row
     return {
         'id': row['id'],
         'podcastId': row['podcast_id'],
         'label': row['label'],
-        'cueType': row['cue_type'] if 'cue_type' in row.keys() else AUDIO_CUE_TYPE_DEFAULT,
+        'cueType': row['cue_type'] if 'cue_type' in keys else AUDIO_CUE_TYPE_DEFAULT,
         'sourceEpisodeId': row['source_episode_id'],
         'sourceOffsetS': row['source_offset_s'],
         'durationS': row['duration_s'],
         'sampleRate': row['sample_rate'],
         'nCoeffs': row['n_coeffs'],
-        'scope': row['scope'] if 'scope' in row.keys() else 'podcast',
-        'networkId': row['network_id'] if 'network_id' in row.keys() else None,
+        'scope': row['scope'] if 'scope' in keys else 'podcast',
+        'networkId': row['network_id'] if 'network_id' in keys else None,
         'enabled': bool(row['enabled']),
         'createdAt': row['created_at'],
-        'createdBy': row['created_by'] if 'created_by' in row.keys() else None,
+        'createdBy': row['created_by'] if 'created_by' in keys else None,
         'hasAudio': bool(row.get('pcm_blob')) or bool(row.get('has_audio')),
+        'scoreThreshold': row.get('score_threshold'),
     }
 
 
@@ -294,6 +297,20 @@ def update_cue_template_route(template_id):
     if enabled is not None and not isinstance(enabled, bool):
         return error_response('enabled must be true or false', 400)
 
+    # scoreThreshold: float in [0, 0.99] or null to clear. Absent = no change.
+    score_threshold = _CUE_THRESHOLD_UNSET
+    if 'scoreThreshold' in payload:
+        raw = payload['scoreThreshold']
+        if raw is None:
+            score_threshold = None
+        else:
+            try:
+                score_threshold = float(raw)
+            except (TypeError, ValueError):
+                return error_response('scoreThreshold must be a number or null', 400)
+            if score_threshold < 0 or score_threshold > 0.99:
+                return error_response('scoreThreshold must be between 0 and 0.99', 400)
+
     # Validate the optional scope change BEFORE any write so an invalid scope
     # cannot leave a half-applied label/enabled change behind.
     scope = None
@@ -307,7 +324,8 @@ def update_cue_template_route(template_id):
             if not network_id:
                 return error_response('networkId is required to promote to network scope', 400)
 
-    db.update_cue_template(template_id, cue_type=new_cue_type, enabled=enabled)
+    db.update_cue_template(template_id, cue_type=new_cue_type, enabled=enabled,
+                           score_threshold=score_threshold)  # _CUE_THRESHOLD_UNSET = no change
     if scope is not None:
         db.promote_cue_template(template_id, scope, network_id)
 
@@ -366,6 +384,9 @@ def cue_scan_episode(slug, episode_id):
         except (TypeError, ValueError):
             return error_response('scoreThreshold must be a number', 400)
         threshold_source = 'request'
+        # Run-level override supersedes per-template thresholds: strip them so
+        # the explicit experiment value governs every template uniformly.
+        templates = [{**t, 'score_threshold': None} for t in templates]
     else:
         score, threshold_source = resolve_cue_template_score_with_source(db, podcast['id'])
     matcher = AudioCueTemplateMatcher(

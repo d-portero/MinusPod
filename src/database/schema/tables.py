@@ -329,6 +329,7 @@ CREATE TABLE IF NOT EXISTS audio_cue_templates (
     -- allowed set, so a new type (#350 content_transition) needs no table rebuild.
     cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary',
     enabled INTEGER NOT NULL DEFAULT 1,
+    score_threshold REAL,
     created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     created_by TEXT DEFAULT 'user',
     FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE

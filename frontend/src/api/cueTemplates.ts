@@ -61,6 +61,9 @@ export interface CueTemplate {
   // True when the template has a stored PCM blob; the play button is shown only
   // when this is true (or absent, for templates from older servers).
   hasAudio?: boolean;
+  // Per-template match-score threshold. Overrides per-feed and global when set.
+  // null = inherit from feed/global. Range [0, 0.99].
+  scoreThreshold?: number | null;
   // Create-response only: how many times the captured cue recurs in its source
   // episode, and whether that makes it a weak (non-recurring) ad-break cue.
   // longCapture is true when an ad-break cue exceeds captureWarnSeconds (issue
@@ -114,7 +117,7 @@ export async function createCueTemplate(
 
 export async function updateCueTemplate(
   templateId: number,
-  patch: { cueType?: CueTemplateType; enabled?: boolean; scope?: CueTemplateScope; networkId?: string },
+  patch: { cueType?: CueTemplateType; enabled?: boolean; scope?: CueTemplateScope; networkId?: string; scoreThreshold?: number | null },
 ): Promise<CueTemplate> {
   const res = await apiRequest<{ template: CueTemplate }>(
     `/cue-templates/${templateId}`,
