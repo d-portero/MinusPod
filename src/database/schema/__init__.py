@@ -421,6 +421,13 @@ class SchemaMixin:
             ('title_override', 'TEXT'),
             ('detection_mode', 'TEXT'),
             ('cue_template_score_override', 'REAL'),
+            ('cue_create_from_pairs_override', 'INTEGER'),
+            ('cue_pair_min_break_override', 'REAL'),
+            ('cue_pair_max_break_override', 'REAL'),
+            ('cue_pair_max_break_fraction_override', 'REAL'),
+            ('cue_snap_confidence_override', 'REAL'),
+            ('cue_snap_lead_override', 'REAL'),
+            ('cue_snap_lag_override', 'REAL'),
             ('skip_second_pass', 'INTEGER DEFAULT 0'),
             ('max_episodes', 'INTEGER'),
             ('etag', 'TEXT'),
@@ -433,6 +440,14 @@ class SchemaMixin:
         ]
         for col, definition in podcasts_migrations:
             self._add_column_if_missing(conn, 'podcasts', col, definition, pod_cols)
+
+        # -- audio_cue_templates table columns --
+        act_cols = self._get_table_columns(conn, 'audio_cue_templates')
+        act_migrations = [
+            ('score_threshold', 'REAL'),
+        ]
+        for col, definition in act_migrations:
+            self._add_column_if_missing(conn, 'audio_cue_templates', col, definition, act_cols)
 
         # 2.0.19 -> 2.0.20: convert only_expose_processed_episodes from
         # INTEGER DEFAULT 0 to plain nullable INTEGER, treating the previous

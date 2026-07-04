@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS podcasts (
     title_override TEXT,
     detection_mode TEXT,
     cue_template_score_override REAL,
+    cue_create_from_pairs_override INTEGER,
+    cue_pair_min_break_override REAL,
+    cue_pair_max_break_override REAL,
+    cue_pair_max_break_fraction_override REAL,
+    cue_snap_confidence_override REAL,
+    cue_snap_lead_override REAL,
+    cue_snap_lag_override REAL,
     skip_second_pass INTEGER DEFAULT 0,
     max_episodes INTEGER,
     only_expose_processed_episodes INTEGER,
@@ -329,6 +336,7 @@ CREATE TABLE IF NOT EXISTS audio_cue_templates (
     -- allowed set, so a new type (#350 content_transition) needs no table rebuild.
     cue_type TEXT NOT NULL DEFAULT 'ad_break_boundary',
     enabled INTEGER NOT NULL DEFAULT 1,
+    score_threshold REAL,
     created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     created_by TEXT DEFAULT 'user',
     FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE

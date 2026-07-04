@@ -92,7 +92,11 @@ a template on its own.
 Saved cues are listed with enable checkboxes. Change type swaps a cue's type in
 place. Test on episode runs every enabled cue against any episode and reports
 each cue's peak match score, which is the value to tune Template match score
-against in Settings. Export downloads a cue as a portable file (a lossless audio
+against in Settings. Each template row has a Threshold button that sets a
+per-template match score (0.30 to 0.99); leave it empty to inherit the per-feed
+or global threshold. Values below 0.30 are rejected because noise commonly
+scores in the 0.33-0.50 range and a sub-floor threshold would surface noise hits
+as cue matches. Export downloads a cue as a portable file (a lossless audio
 clip plus a manifest) to share with another install; Import loads one back. On a
 feed that belongs to a network, Promote to network applies a cue to every show on
 that network. Saving a non-ad cue type (intro, outro, or content transition)
@@ -108,10 +112,16 @@ rely on it to snap boundaries.
 
 Settings live under Settings > Experiments > Audio Cue Detection. They are
 database settings configured in the UI and at `GET/PUT /api/v1/settings`; none of
-them has an environment variable.
+them has an environment variable. The group headings below match the three cards
+that appear in the UI when the toggle is on.
 
 - **Enable audio cue detection** - master toggle, off by default. Turns on
   whichever mode applies to the feed.
+
+### Finding cues
+
+Spots candidate cues in the audio and brackets how long a cue may run.
+
 - **Frequency band** - the low and high edges, in Hz, of the band the spectral
   fallback listens in. Chimes and bells usually sit between roughly 1.5 and
   8 kHz. The low edge must be below the high edge.
@@ -120,23 +130,82 @@ them has an environment variable.
   quieter cues but adds false positives.
 - **Minimum confidence** - drops cues weaker than this. The model is never shown
   a cue below 0.80 confidence regardless of this value.
+- **Capture minimum length (s)** - shortest cue you may bracket.
+- **Capture maximum length (s)** - longest cue you may bracket.
+- **Show-intro capture maximum (s)** - longest show-intro stinger you may bracket.
+- **Show-outro capture maximum (s)** - longest show-outro stinger you may bracket.
+
+### Matching templates
+
+Scores saved cue templates against new episodes.
+
 - **Template match score** - the cross-correlation score a marked template must
   reach to register on another episode (0 to 0.99, default 0.75). Lower catches
-  more occurrences but risks false matches. Applies only to feeds that have
-  templates.
+  more occurrences but risks false matches. Applies only to feeds with templates;
+  otherwise the spectral knobs above are used. With the default floors a cue
+  must still reach 0.80 confidence to affect a cut, so a lower value here mostly
+  surfaces weaker cues in diagnostics.
+
+  **Threshold precedence:** per-template > per-feed > global. A per-template
+  value (set on the template row in the Audio Cue Templates panel) overrides the
+  per-feed override (`cueTemplateScoreOverride` on the feed settings page), which
+  in turn overrides this global setting. An empty value at any level means
+  inherit the next level down. Two diagnostics bypass per-template values:
+  typing a score threshold into `Test on episode` applies that one value to
+  every template for that run, and the `Suggest threshold` sweep strips them so
+  it can measure the full score distribution.
+
 - **Voiceover attenuation (dB)** - off by default. When a cue is a music bed
   under a per-episode voiceover (the jingle is constant, the read varies), this
   attenuates the 800-3400 Hz speech band during matching so the cue keys on the
   bed. Only that band is touched, so bass beds and high chimes are unaffected;
   try 9-12 dB if a music-bed cue matches inconsistently.
+
+### Ad cutting
+
+Uses accepted cues to snap ad edges or build ads from cue pairs.
+
+- **Snap confidence floor** - minimum cue confidence before a cue may move an ad
+  edge. Higher is stricter.
+- **Snap lead window (s)** - how far before an ad edge a cue may sit and still
+  snap the boundary.
+- **Snap lag window (s)** - how far after an ad edge a cue may sit and still snap
+  the boundary.
+- **Cue-pair confidence floor** - minimum cue confidence to synthesize an ad from
+  a cue pair. Higher than the snap floor because this creates an ad rather than
+  refining one.
+- **Cue-pair minimum break (s)** - shortest span between two cues that may form a
+  synthesized ad.
+- **Cue-pair maximum break (s)** - longest span between two cues that may form a
+  synthesized ad.
+- **Cue-pair maximum break (fraction of episode)** - reject a cue pair spanning
+  more than this fraction of the episode. 0 disables it.
 - **Create ads from cue pairs** - off by default. When two high-confidence cues
   bracket a plausible break the model missed, synthesize a cue-only ad for that
   span. The reviewer still evaluates it. This relaxes the "cue is supporting
   evidence only" rule, so leave it off until you trust the matcher on a feed.
-- **Advanced tuning** - the snap confidence floor (how confident a cue must be to
-  move an ad edge), the capture length minimum and maximum, and the cue-pair
-  confidence floor and break-duration band. The defaults suit most shows; tune
-  them only if a feed's cue is noisy or its breaks are unusually short or long.
+
+## Per-feed overrides
+
+Per-feed controls sit in two places on the feed detail page under Feed settings:
+
+- **Cue threshold** (`cueTemplateScoreOverride`) - per-feed match score override,
+  0.30 to 0.99. Empty means use the global Template match score. A per-template
+  value takes precedence over this. The `Suggest threshold` action in Test on
+  episode can write this override for you via its Apply to this feed button.
+- **Cue tuning overrides** (collapsible) - per-feed overrides for seven advanced
+  knobs. Empty for any field means inherit the global value:
+  - **Pair synthesis** (`cueCreateFromPairsOverride`) - tri-state: on, off, or
+    inherit global.
+  - **Pair min break** (`cuePairMinBreakOverride`) - seconds.
+  - **Pair max break** (`cuePairMaxBreakOverride`) - seconds.
+  - **Pair max fraction** (`cuePairMaxBreakFractionOverride`) - 0-1.
+  - **Snap confidence** (`cueSnapConfidenceOverride`) - 0-1.
+  - **Snap lead** (`cueSnapLeadOverride`) - seconds.
+  - **Snap lag** (`cueSnapLagOverride`) - seconds.
+
+Overrides are set at `PATCH /api/v1/feeds/<slug>` and apply to episodes
+processed after the change.
 
 ## Requirements and notes
 

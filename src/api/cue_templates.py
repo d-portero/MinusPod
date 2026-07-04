@@ -24,6 +24,7 @@ from flask import abort, request, send_file
 from api import (
     api, log_request, json_response, error_response,
     get_database, get_storage, _get_version,
+    _normalize_nullable_finite_float,
 )
 from audio_analysis.cue_features import (
     SAMPLE_RATE_HZ, N_COEFFS, compute_mfcc, decode_pcm_window,
@@ -70,7 +71,9 @@ from config import (
     AUDIO_CUE_AD_AFFINITY_PHASE_FRACTION,
     resolve_cue_template_score,
     resolve_cue_template_score_with_source,
+    AUDIO_CUE_SCORE_MAX, AUDIO_CUE_SCORE_MIN,
 )
+from database.cue_templates import _UNSET as _CUE_THRESHOLD_UNSET
 from utils.constants import EpisodeStatus
 from utils.validation import is_valid_episode_id
 
@@ -112,22 +115,24 @@ def _resolve_original_audio(db, storage, slug, episode_id):
 
 def _template_to_meta_dict(row: dict) -> dict:
     """Strip the binary blobs for JSON responses."""
+    keys = row.keys() if hasattr(row, 'keys') else row
     return {
         'id': row['id'],
         'podcastId': row['podcast_id'],
         'label': row['label'],
-        'cueType': row['cue_type'] if 'cue_type' in row.keys() else AUDIO_CUE_TYPE_DEFAULT,
+        'cueType': row['cue_type'] if 'cue_type' in keys else AUDIO_CUE_TYPE_DEFAULT,
         'sourceEpisodeId': row['source_episode_id'],
         'sourceOffsetS': row['source_offset_s'],
         'durationS': row['duration_s'],
         'sampleRate': row['sample_rate'],
         'nCoeffs': row['n_coeffs'],
-        'scope': row['scope'] if 'scope' in row.keys() else 'podcast',
-        'networkId': row['network_id'] if 'network_id' in row.keys() else None,
+        'scope': row['scope'] if 'scope' in keys else 'podcast',
+        'networkId': row['network_id'] if 'network_id' in keys else None,
         'enabled': bool(row['enabled']),
         'createdAt': row['created_at'],
-        'createdBy': row['created_by'] if 'created_by' in row.keys() else None,
+        'createdBy': row['created_by'] if 'created_by' in keys else None,
         'hasAudio': bool(row.get('pcm_blob')) or bool(row.get('has_audio')),
+        'scoreThreshold': row.get('score_threshold'),
     }
 
 
@@ -294,6 +299,16 @@ def update_cue_template_route(template_id):
     if enabled is not None and not isinstance(enabled, bool):
         return error_response('enabled must be true or false', 400)
 
+    # scoreThreshold: float in [AUDIO_CUE_SCORE_MIN, AUDIO_CUE_SCORE_MAX] or null to clear.
+    # Absent = no change. Uses shared validator which also rejects booleans, NaN, and inf.
+    score_threshold = _CUE_THRESHOLD_UNSET
+    if 'scoreThreshold' in payload:
+        raw = payload['scoreThreshold']
+        score_threshold, thr_err = _normalize_nullable_finite_float(
+            raw, 'scoreThreshold', AUDIO_CUE_SCORE_MIN, AUDIO_CUE_SCORE_MAX)
+        if thr_err:
+            return error_response(thr_err, 400)
+
     # Validate the optional scope change BEFORE any write so an invalid scope
     # cannot leave a half-applied label/enabled change behind.
     scope = None
@@ -307,7 +322,8 @@ def update_cue_template_route(template_id):
             if not network_id:
                 return error_response('networkId is required to promote to network scope', 400)
 
-    db.update_cue_template(template_id, cue_type=new_cue_type, enabled=enabled)
+    db.update_cue_template(template_id, cue_type=new_cue_type, enabled=enabled,
+                           score_threshold=score_threshold)  # _CUE_THRESHOLD_UNSET = no change
     if scope is not None:
         db.promote_cue_template(template_id, scope, network_id)
 
@@ -368,10 +384,13 @@ def cue_scan_episode(slug, episode_id):
         threshold_source = 'request'
     else:
         score, threshold_source = resolve_cue_template_score_with_source(db, podcast['id'])
+    # When a run-level override is given, ignore per-template thresholds so the
+    # explicit experiment value governs every template uniformly.
     matcher = AudioCueTemplateMatcher(
         templates=templates, score_threshold=score,
         formant_atten_db=db.get_setting_float(
             'audio_cue_formant_atten_db', AUDIO_CUE_FORMANT_ATTEN_DB),
+        ignore_per_template_thresholds=(override is not None),
     )
     if not matcher.is_usable:
         return error_response('templates could not be loaded', 500)
@@ -401,6 +420,13 @@ def cue_scan_episode(slug, episode_id):
                     (d['peak_score'] for d in debug['templates']
                      if d['id'] == t['id']),
                     0.0,
+                ),
+                # effThreshold is the threshold that actually gated matches for
+                # this template (per-template override when set, else instance).
+                'effThreshold': next(
+                    (d['eff_threshold'] for d in debug['templates']
+                     if d['id'] == t['id']),
+                    debug['threshold'],
                 ),
                 'matchCount': len(by_template.get(t['id'], [])),
                 'matches': by_template.get(t['id'], []),
@@ -1204,11 +1230,15 @@ def _run_cue_threshold_scan(podcast_id, episode_id, slug, audio_paths,
         peaks = {}
         # The matcher is stateless across episodes (audio is decoded inside
         # detect_with_debug), so build it once instead of per episode.
+        # Ignore per-template thresholds so the sweep sees the full score
+        # distribution at AUDIO_CUE_SUGGEST_FLOOR; per-template gates would
+        # hide sub-threshold occurrences and bias the gap-finder.
         matcher = AudioCueTemplateMatcher(
             templates,
             score_threshold=AUDIO_CUE_SUGGEST_FLOOR,
             max_matches_per_template=200,
             formant_atten_db=formant_atten,
+            ignore_per_template_thresholds=True,
         )
         if not matcher.is_usable:
             db.save_cue_threshold_scan_error(

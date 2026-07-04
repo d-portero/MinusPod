@@ -21,6 +21,10 @@ from config import audio_cue_type_label
 
 logger = logging.getLogger(__name__)
 
+# Sentinel for update_cue_template: distinguishes "caller did not pass
+# score_threshold" from "caller explicitly wants to clear it to NULL".
+_UNSET = object()
+
 
 class CueTemplateMixin:
     """Audio cue template CRUD and per-feed scope resolution."""
@@ -111,7 +115,7 @@ class CueTemplateMixin:
         cursor = conn.execute(
             "SELECT id, podcast_id, label, cue_type, source_episode_id, source_offset_s, "
             "duration_s, sample_rate, n_coeffs, scope, network_id, "
-            "enabled, created_at, created_by, "
+            "enabled, score_threshold, created_at, created_by, "
             "(pcm_blob IS NOT NULL) AS has_audio "
             "FROM audio_cue_templates WHERE podcast_id = ? "
             "ORDER BY created_at DESC",
@@ -133,7 +137,7 @@ class CueTemplateMixin:
         cursor = conn.execute(
             """SELECT id, podcast_id, label, cue_type, source_episode_id, source_offset_s,
                       duration_s, sample_rate, n_coeffs, scope, network_id,
-                      enabled, created_at, created_by,
+                      enabled, score_threshold, created_at, created_by,
                       (pcm_blob IS NOT NULL) AS has_audio
                FROM audio_cue_templates
                WHERE podcast_id = :pid
@@ -152,11 +156,13 @@ class CueTemplateMixin:
         template_id: int,
         cue_type: Optional[str] = None,
         enabled: Optional[bool] = None,
+        score_threshold=_UNSET,
     ) -> bool:
-        """Patch cue_type and/or enabled. Returns True if a row was updated.
+        """Patch cue_type, enabled, and/or score_threshold. Returns True if updated.
 
-        Changing ``cue_type`` also resets the derived ``label`` so the stored
-        phrase stays in sync with the type.
+        Changing ``cue_type`` also resets the derived ``label``.
+        Pass ``score_threshold=None`` to clear the column to NULL.
+        Omit ``score_threshold`` (or use the default sentinel) to leave it unchanged.
         """
         sets = []
         args: list = []
@@ -168,6 +174,9 @@ class CueTemplateMixin:
         if enabled is not None:
             sets.append("enabled = ?")
             args.append(1 if enabled else 0)
+        if score_threshold is not _UNSET:
+            sets.append("score_threshold = ?")
+            args.append(score_threshold)
         if not sets:
             return False
         args.append(template_id)

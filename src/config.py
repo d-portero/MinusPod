@@ -190,6 +190,11 @@ AUDIO_CUE_ONSET_LAG_SECONDS = 0.2    # ebur128 momentary loudness integrates ove
 # dip below 0.85 with background beds) against false positives (non-cue audio
 # sits near 0.0). Tuneable via the audio_cue_template_score DB setting.
 AUDIO_CUE_TEMPLATE_SCORE = 0.75
+AUDIO_CUE_SCORE_MAX = 0.99              # Upper bound for cue score overrides
+# Noise floor measured at 0.33-0.50; sub-floor thresholds pass noise as cue
+# matches. Applied to cueTemplateScoreOverride (per-feed) and per-template
+# scoreThreshold everywhere.
+AUDIO_CUE_SCORE_MIN = 0.30
 # Near-miss band: [max(MIN_FLOOR, threshold - DELTA), threshold). Advisory only (#350).
 AUDIO_CUE_NEAR_MISS_DELTA = 0.2
 AUDIO_CUE_NEAR_MISS_MIN_FLOOR = 0.5
@@ -213,6 +218,8 @@ AUDIO_CUE_FORMANT_ATTEN_DB = 0.0
 # Cue boundary snap + cue-pair synthesis tunables (#350). All DB-settable so a
 # show with a noisy cue or unusual break lengths can be tuned without a code
 # change; the defaults match the values the feature shipped with.
+AUDIO_CUE_SNAP_LEAD_SECONDS = 10.0      # Fallback; live value from audio_cue_snap_lead_seconds
+AUDIO_CUE_SNAP_LAG_SECONDS = 4.0       # Fallback; live value from audio_cue_snap_lag_seconds
 AUDIO_CUE_SNAP_CONFIDENCE = 0.80        # Min cue confidence to move an ad edge
 AUDIO_CUE_CAPTURE_MIN_SECONDS = 0.20    # Shortest cue a user may bracket (match-reliability floor)
 AUDIO_CUE_CAPTURE_MAX_SECONDS = 10.0    # Longest cue a user may bracket
@@ -377,6 +384,55 @@ def resolve_cue_template_score(db, podcast_id):
     """Per-feed cue match threshold, falling back to the global setting."""
     score, _ = resolve_cue_template_score_with_source(db, podcast_id)
     return score
+
+
+
+# (override_col, setting_key, code_default, out_key) for the six float cue knobs.
+_CUE_FLOAT_KNOBS = [
+    ('cue_pair_min_break_override',       'audio_cue_pair_min_break_seconds',  AUDIO_CUE_PAIR_MIN_BREAK_SECONDS,    'pair_min_break'),
+    ('cue_pair_max_break_override',       'audio_cue_pair_max_break_seconds',  AUDIO_CUE_PAIR_MAX_BREAK_SECONDS,    'pair_max_break'),
+    ('cue_pair_max_break_fraction_override', 'audio_cue_pair_max_break_fraction', AUDIO_CUE_PAIR_MAX_BREAK_FRACTION, 'pair_max_break_fraction'),
+    ('cue_snap_confidence_override',      'audio_cue_snap_confidence',         AUDIO_CUE_SNAP_CONFIDENCE,           'snap_confidence'),
+    ('cue_snap_lead_override',            'audio_cue_snap_lead_seconds',       AUDIO_CUE_SNAP_LEAD_SECONDS,         'snap_lead'),
+    ('cue_snap_lag_override',             'audio_cue_snap_lag_seconds',        AUDIO_CUE_SNAP_LAG_SECONDS,          'snap_lag'),
+]
+
+
+def resolve_feed_cue_settings(db, podcast_id):
+    """Resolve all 7 per-feed cue knobs in one DB read.
+
+    Returns a dict with effective values for the processing hot path.
+    Priority: per-feed override > global DB setting > code default.
+    With all overrides NULL the result is byte-identical to the previous
+    direct db.get_setting_* calls.
+    """
+    if not db:
+        result = {out_key: default for _, _, default, out_key in _CUE_FLOAT_KNOBS}
+        result['create_from_pairs'] = False
+        return result
+
+    # Fetch per-feed overrides; failure here still allows global reads below.
+    overrides = {}
+    try:
+        if podcast_id is not None:
+            overrides = db.get_podcast_cue_settings_overrides(podcast_id)
+    except Exception:
+        _tunable_logger.warning('resolve_feed_cue_settings: override read failed; using globals')
+
+    create_from_pairs_raw = overrides.get('cue_create_from_pairs_override')
+    if create_from_pairs_raw is not None:
+        create_from_pairs = bool(create_from_pairs_raw)
+    else:
+        create_from_pairs = db.get_setting_bool('audio_cue_create_from_pairs', default=False)
+
+    result = {'create_from_pairs': create_from_pairs}
+    for override_col, setting_key, code_default, out_key in _CUE_FLOAT_KNOBS:
+        raw = overrides.get(override_col)
+        if raw is not None:
+            result[out_key] = float(raw)
+        else:
+            result[out_key] = db.get_setting_float(setting_key, code_default)
+    return result
 
 
 # Cue template types (#350). A cue is one of a fixed set of types chosen from a

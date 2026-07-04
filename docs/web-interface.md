@@ -10,7 +10,7 @@ The server includes a web-based management UI at `/ui/`:
 
 - Dashboard with feed artwork and episode counts
 - Add feeds by RSS URL with optional episode cap
-- Feed management: refresh, delete, copy URLs, editable display title, set network override, per-feed episode cap, per-feed transcription language override
+- Feed management: refresh, delete, copy URLs, editable display title, set network override, per-feed episode cap, per-feed transcription language override, per-feed cue match threshold and cue tuning overrides (see [Audio Cue Detection](audio-cues.md))
 - Feed detail page groups its controls into collapsible sections (feed settings, tags, ad distribution) so the page stays scannable
 - Ad Distribution panel on the feed detail page: a histogram of where ads have historically been cut across the feed, with learned prior zones marked
 - Episode discovery: all episodes surface on refresh, process any episode from the feed detail page

@@ -65,6 +65,33 @@ class PodcastMixin:
         row = cursor.fetchone()
         return row['detection_mode'] if row else None
 
+    _CUE_OVERRIDE_COLS = (
+        'cue_create_from_pairs_override',
+        'cue_pair_min_break_override',
+        'cue_pair_max_break_override',
+        'cue_pair_max_break_fraction_override',
+        'cue_snap_confidence_override',
+        'cue_snap_lead_override',
+        'cue_snap_lag_override',
+    )
+
+    def get_podcast_cue_settings_overrides(self, podcast_id: int) -> dict:
+        """Per-feed cue knob overrides -- all 7 columns in one query.
+
+        Returns a dict with keys matching the DB column names. Each value is
+        the raw DB value (None means NULL / no override set).
+        """
+        cols_sql = ', '.join(self._CUE_OVERRIDE_COLS)
+        conn = self.get_connection()
+        cursor = conn.execute(
+            f"SELECT {cols_sql} FROM podcasts WHERE id = ?",
+            (podcast_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return dict.fromkeys(self._CUE_OVERRIDE_COLS)
+        return dict(row)
+
     def get_podcast_cue_score_override(self, podcast_id: int) -> Optional[float]:
         """Per-feed cue_template_score_override column only -- cheap id-based lookup."""
         conn = self.get_connection()
@@ -97,13 +124,16 @@ class PodcastMixin:
         fields = []
         values = []
         for key, value in kwargs.items():
-            if key in ('title', 'description', 'artwork_url', 'artwork_cached',
-                       'last_checked_at', 'source_url', 'network_id', 'dai_platform',
-                       'network_id_override', 'audio_analysis_override', 'auto_process_override',
-                       'language_override', 'title_override', 'detection_mode',
-                       'cue_template_score_override',
-                       'max_episodes', 'etag',
-                       'last_modified_header', 'only_expose_processed_episodes'):
+            if key in (
+                'title', 'description', 'artwork_url', 'artwork_cached',
+                'last_checked_at', 'source_url', 'network_id', 'dai_platform',
+                'network_id_override', 'audio_analysis_override', 'auto_process_override',
+                'language_override', 'title_override', 'detection_mode',
+                'cue_template_score_override',
+                *self._CUE_OVERRIDE_COLS,
+                'max_episodes', 'etag',
+                'last_modified_header', 'only_expose_processed_episodes',
+            ):
                 fields.append(f"{key} = ?")
                 values.append(value)
             elif key in ('tags', 'user_tags'):

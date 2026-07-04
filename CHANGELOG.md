@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.35.0] - 2026-07-04
+
+### Added
+
+- Per-template match score threshold: each audio cue template can carry its own match threshold (Threshold control on the template row), taking precedence over the per-feed override and the global Template match score. Empty inherits. The Test on episode scan's run-level threshold and the Suggest threshold sweep both ignore per-template values, so diagnostics stay uniform across templates.
+- Per-feed cue tuning overrides: snap confidence, snap lead/lag windows, cue-pair minimum and maximum break, maximum break fraction, and create-ads-from-cue-pairs can now be set per feed (Feed settings > Cue tuning overrides). Empty fields inherit the global settings; create-from-pairs is tri-state (on, off, or inherit).
+
+### Changed
+
+- The Audio Cue Detection settings section is now grouped into three cards matching the pipeline: Finding cues, Matching templates, and Ad cutting. The create-from-pairs toggle moved next to the other cue-pair settings.
+- docs/audio-cues.md documents the per-feed threshold override (shipped in 2.32.0 but previously undocumented), the new per-template threshold, and the per-feed tuning overrides.
+
 ## [2.34.0] - 2026-07-03
 
 ### Added
