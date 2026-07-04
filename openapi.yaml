@@ -5003,11 +5003,12 @@ paths:
                 scoreThreshold:
                   type: number
                   nullable: true
-                  minimum: 0
+                  minimum: 0.30
                   maximum: 0.99
                   description: >
                     Per-template match-score threshold. Null clears the override
                     (falls back to per-feed or global). Omit to leave unchanged.
+                    Minimum 0.30 (noise floor; sub-floor values pass noise as matches).
       responses:
         '200':
           description: Updated template
@@ -5859,12 +5860,13 @@ components:
         scoreThreshold:
           type: number
           nullable: true
-          minimum: 0
+          minimum: 0.30
           maximum: 0.99
           description: >
             Optional per-template match-score threshold. When set, overrides the
             per-feed and global thresholds for this template only. Null means
             fall back to the per-feed override or global setting.
+            Minimum 0.30 (noise floor; sub-floor values pass noise as matches).
     BulkPatternOp:
       type: object
       required: [confirm, expected_count]

@@ -191,6 +191,10 @@ AUDIO_CUE_ONSET_LAG_SECONDS = 0.2    # ebur128 momentary loudness integrates ove
 # sits near 0.0). Tuneable via the audio_cue_template_score DB setting.
 AUDIO_CUE_TEMPLATE_SCORE = 0.75
 AUDIO_CUE_SCORE_MAX = 0.99              # Upper bound for cue score overrides
+# Noise floor measured at 0.33-0.50; sub-floor thresholds pass noise as cue
+# matches. Applied to cueTemplateScoreOverride (per-feed) and per-template
+# scoreThreshold everywhere.
+AUDIO_CUE_SCORE_MIN = 0.30
 # Near-miss band: [max(MIN_FLOOR, threshold - DELTA), threshold). Advisory only (#350).
 AUDIO_CUE_NEAR_MISS_DELTA = 0.2
 AUDIO_CUE_NEAR_MISS_MIN_FLOOR = 0.5

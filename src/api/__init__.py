@@ -154,7 +154,12 @@ def get_storage():
 def get_database():
     """Get database instance."""
     from database import Database
-    return Database()
+    data_dir = (
+        os.environ.get('DATA_DIR')
+        or os.environ.get('DATA_PATH')
+        or os.environ.get('MINUSPOD_DATA_DIR')
+    )
+    return Database(data_dir) if data_dir else Database()
 
 
 def get_feed_auth_key(db):
@@ -293,6 +298,32 @@ def _deserialize_nullable_bool(value):
     if value is None:
         return None
     return bool(value)
+
+
+def _normalize_nullable_finite_float(value, field_name, lo, hi):
+    """Validate a nullable float override within [lo, hi].
+
+    Returns (db_value, error).
+    - None or '' clears the override (returns None, None).
+    - bool is rejected (True/False would silently coerce to 1.0/0.0).
+    - Non-finite values (NaN, inf) are rejected; they pass range checks
+      because NaN comparisons are always False and SQLite binds NaN as NULL.
+    - Out-of-range or non-numeric values are rejected with a 400 error.
+    """
+    if value is None or value == '':
+        return None, None
+    if isinstance(value, bool):
+        return None, f"{field_name} must be a number or null, not a boolean"
+    try:
+        fval = float(value)
+    except (TypeError, ValueError):
+        return None, f"{field_name} must be a number or null"
+    import math
+    if not math.isfinite(fval):
+        return None, f"{field_name} must be a finite number"
+    if fval < lo or fval > hi:
+        return None, f"{field_name} must be between {lo} and {hi}"
+    return fval, None
 
 
 def get_sponsor_service():

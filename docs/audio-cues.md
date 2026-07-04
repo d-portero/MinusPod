@@ -93,8 +93,10 @@ Saved cues are listed with enable checkboxes. Change type swaps a cue's type in
 place. Test on episode runs every enabled cue against any episode and reports
 each cue's peak match score, which is the value to tune Template match score
 against in Settings. Each template row has a Threshold button that sets a
-per-template match score (0 to 0.99); leave it empty to inherit the per-feed
-or global threshold. Export downloads a cue as a portable file (a lossless audio
+per-template match score (0.30 to 0.99); leave it empty to inherit the per-feed
+or global threshold. Values below 0.30 are rejected because noise commonly
+scores in the 0.33-0.50 range and a sub-floor threshold would surface noise hits
+as cue matches. Export downloads a cue as a portable file (a lossless audio
 clip plus a manifest) to share with another install; Import loads one back. On a
 feed that belongs to a network, Promote to network applies a cue to every show on
 that network. Saving a non-ad cue type (intro, outro, or content transition)

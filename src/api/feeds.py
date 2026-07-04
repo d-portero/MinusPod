@@ -15,6 +15,7 @@ from api import (
     get_database, get_storage, get_feed_auth_key,
     _serialize_auto_process, _deserialize_auto_process,
     _serialize_nullable_bool, _deserialize_nullable_bool,
+    _normalize_nullable_finite_float,
 )
 from positional_prior import compute_ad_distribution
 from utils.language import LANGUAGE_CODE_RE
@@ -90,9 +91,9 @@ def _normalize_detection_mode(value):
     return None, f"detectionMode must be one of: {', '.join(DETECTION_MODES)}"
 
 
-from config import AUDIO_CUE_SCORE_MAX
+from config import AUDIO_CUE_SCORE_MAX, AUDIO_CUE_SCORE_MIN
 
-_CUE_SCORE_MIN = 0.30
+_CUE_SCORE_MIN = AUDIO_CUE_SCORE_MIN
 _CUE_SCORE_MAX = AUDIO_CUE_SCORE_MAX
 
 # (json_key, db_col, lo, hi) for the seven float cue override fields.
@@ -121,17 +122,9 @@ def _normalize_cue_bool_override(value, field_name):
 def _normalize_cue_float_override(value, field_name, lo, hi):
     """Validate a nullable float override within [lo, hi].
 
-    Returns (db_value, error). None clears. Out-of-range or non-numeric rejected.
+    Delegates to the shared validator which also rejects booleans, NaN and inf.
     """
-    if value is None or value == '':
-        return None, None
-    try:
-        fval = float(value)
-    except (TypeError, ValueError):
-        return None, f"{field_name} must be a number or null"
-    if fval < lo or fval > hi:
-        return None, f"{field_name} must be between {lo} and {hi}"
-    return fval, None
+    return _normalize_nullable_finite_float(value, field_name, lo, hi)
 
 
 def _cue_override_fields(podcast) -> dict:

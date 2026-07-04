@@ -24,6 +24,7 @@ from flask import abort, request, send_file
 from api import (
     api, log_request, json_response, error_response,
     get_database, get_storage, _get_version,
+    _normalize_nullable_finite_float,
 )
 from audio_analysis.cue_features import (
     SAMPLE_RATE_HZ, N_COEFFS, compute_mfcc, decode_pcm_window,
@@ -70,7 +71,7 @@ from config import (
     AUDIO_CUE_AD_AFFINITY_PHASE_FRACTION,
     resolve_cue_template_score,
     resolve_cue_template_score_with_source,
-    AUDIO_CUE_SCORE_MAX,
+    AUDIO_CUE_SCORE_MAX, AUDIO_CUE_SCORE_MIN,
 )
 from database.cue_templates import _UNSET as _CUE_THRESHOLD_UNSET
 from utils.constants import EpisodeStatus
@@ -298,19 +299,15 @@ def update_cue_template_route(template_id):
     if enabled is not None and not isinstance(enabled, bool):
         return error_response('enabled must be true or false', 400)
 
-    # scoreThreshold: float in [0, 0.99] or null to clear. Absent = no change.
+    # scoreThreshold: float in [AUDIO_CUE_SCORE_MIN, AUDIO_CUE_SCORE_MAX] or null to clear.
+    # Absent = no change. Uses shared validator which also rejects booleans, NaN, and inf.
     score_threshold = _CUE_THRESHOLD_UNSET
     if 'scoreThreshold' in payload:
         raw = payload['scoreThreshold']
-        if raw is None:
-            score_threshold = None
-        else:
-            try:
-                score_threshold = float(raw)
-            except (TypeError, ValueError):
-                return error_response('scoreThreshold must be a number or null', 400)
-            if score_threshold < 0 or score_threshold > AUDIO_CUE_SCORE_MAX:
-                return error_response(f'scoreThreshold must be between 0 and {AUDIO_CUE_SCORE_MAX}', 400)
+        score_threshold, thr_err = _normalize_nullable_finite_float(
+            raw, 'scoreThreshold', AUDIO_CUE_SCORE_MIN, AUDIO_CUE_SCORE_MAX)
+        if thr_err:
+            return error_response(thr_err, 400)
 
     # Validate the optional scope change BEFORE any write so an invalid scope
     # cannot leave a half-applied label/enabled change behind.
@@ -423,6 +420,13 @@ def cue_scan_episode(slug, episode_id):
                     (d['peak_score'] for d in debug['templates']
                      if d['id'] == t['id']),
                     0.0,
+                ),
+                # effThreshold is the threshold that actually gated matches for
+                # this template (per-template override when set, else instance).
+                'effThreshold': next(
+                    (d['eff_threshold'] for d in debug['templates']
+                     if d['id'] == t['id']),
+                    debug['threshold'],
                 ),
                 'matchCount': len(by_template.get(t['id'], [])),
                 'matches': by_template.get(t['id'], []),
