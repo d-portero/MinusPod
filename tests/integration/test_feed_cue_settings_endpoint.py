@@ -3,6 +3,9 @@
 Covers all 7 knobs:
 - PATCH accepts valid values and null (clears).
 - PATCH rejects out-of-range values with 400.
+- PATCH rejects NaN, inf, bool (findings 2 and 3).
+- PATCH rejects cueTemplateScoreOverride below 0.30 noise floor (finding 4).
+- Empty string clears to null for float fields (finding 5).
 - GET round-trip: set then read back.
 - GET /feeds list surfaces the fields.
 """
@@ -242,6 +245,98 @@ def test_get_round_trip_all_fields(app_client, seeded_feed, _auth):
     assert body['cueSnapConfidenceOverride'] == pytest.approx(0.72)
     assert body['cueSnapLeadOverride'] == pytest.approx(8.0)
     assert body['cueSnapLagOverride'] == pytest.approx(3.5)
+
+
+# -- NaN / inf / bool rejection (findings 2 and 3) --
+
+def test_patch_float_override_rejects_nan(app_client, seeded_feed, _auth):
+    """NaN passes a range check (NaN comparisons are False) so must be explicitly rejected."""
+    slug = seeded_feed['slug']
+    hdr = _csrf(app_client)
+    # JSON does not have NaN, but some clients send the string 'NaN' or null-coercions;
+    # float('nan') via a raw string tests the server-side guard.
+    r = app_client.patch(f'/api/v1/feeds/{slug}',
+                         json={'cuePairMinBreakOverride': float('nan')}, headers=hdr)
+    assert r.status_code == 400
+
+
+def test_patch_float_override_rejects_inf(app_client, seeded_feed, _auth):
+    """Infinity must be rejected; it passes range checks because inf > any bound is True."""
+    slug = seeded_feed['slug']
+    hdr = _csrf(app_client)
+    r = app_client.patch(f'/api/v1/feeds/{slug}',
+                         json={'cuePairMinBreakOverride': float('inf')}, headers=hdr)
+    assert r.status_code == 400
+
+
+def test_patch_float_override_rejects_bool_true(app_client, seeded_feed, _auth):
+    """True would coerce to 1.0 via float(); must be rejected as a type error."""
+    slug = seeded_feed['slug']
+    hdr = _csrf(app_client)
+    r = app_client.patch(f'/api/v1/feeds/{slug}',
+                         json={'cuePairMinBreakOverride': True}, headers=hdr)
+    assert r.status_code == 400
+
+
+def test_patch_float_override_rejects_bool_false(app_client, seeded_feed, _auth):
+    """False would coerce to 0.0 via float(); must be rejected as a type error."""
+    slug = seeded_feed['slug']
+    hdr = _csrf(app_client)
+    r = app_client.patch(f'/api/v1/feeds/{slug}',
+                         json={'cuePairMinBreakOverride': False}, headers=hdr)
+    assert r.status_code == 400
+
+
+# -- scoreThreshold noise floor (finding 4) --
+
+def test_patch_cue_score_override_rejects_below_noise_floor(app_client, seeded_feed, _auth):
+    """cueTemplateScoreOverride below 0.30 must be rejected (noise ceiling is 0.33-0.50)."""
+    slug = seeded_feed['slug']
+    hdr = _csrf(app_client)
+    r = app_client.patch(f'/api/v1/feeds/{slug}',
+                         json={'cueTemplateScoreOverride': 0.10}, headers=hdr)
+    assert r.status_code == 400
+
+
+def test_patch_cue_score_override_accepts_at_noise_floor(app_client, seeded_feed, _auth):
+    """cueTemplateScoreOverride exactly at 0.30 (the floor) must be accepted."""
+    slug = seeded_feed['slug']
+    hdr = _csrf(app_client)
+    r = app_client.patch(f'/api/v1/feeds/{slug}',
+                         json={'cueTemplateScoreOverride': 0.30}, headers=hdr)
+    assert r.status_code == 200
+    assert r.get_json()['cueTemplateScoreOverride'] == pytest.approx(0.30)
+
+
+# -- per-template scoreThreshold noise floor (finding 4) --
+
+def test_patch_template_score_threshold_rejects_below_noise_floor(app_client, _auth):
+    """Per-template scoreThreshold below 0.30 must be rejected (shared validator)."""
+    import numpy as np
+    from api import get_database
+    from audio_analysis.cue_features import N_COEFFS, serialize_mfcc, pcm_to_int16_bytes
+    db = get_database()
+    with app_client.session_transaction() as sess:
+        sess['authenticated'] = True
+    app_client.get('/api/v1/auth/status')
+    cookie = app_client.get_cookie('minuspod_csrf')
+    hdr = {'X-CSRF-Token': cookie.value} if cookie else {}
+
+    rng = np.random.default_rng(77)
+    mfcc = rng.standard_normal((10, N_COEFFS)).astype(np.float32)
+    pcm = rng.standard_normal(1600).astype(np.float32)
+    pid = db.create_podcast('thr-floor-feed', 'http://x/tf.xml', 'TF')
+    tid = db.create_cue_template(
+        podcast_id=pid, cue_type='ad_break_boundary',
+        source_episode_id='ep1', source_offset_s=1.0, duration_s=0.5,
+        sample_rate=16000, n_coeffs=N_COEFFS,
+        mfcc_blob=serialize_mfcc(mfcc),
+        pcm_blob=pcm_to_int16_bytes(np.clip(pcm, -1, 1)),
+        pcm_sample_rate=16000,
+    )
+    r = app_client.patch(f'/api/v1/cue-templates/{tid}',
+                         json={'scoreThreshold': 0.10}, headers=hdr)
+    assert r.status_code == 400
 
 
 # -- GET /feeds list --

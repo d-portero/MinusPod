@@ -115,3 +115,50 @@ def test_patch_score_threshold_non_numeric_rejected(app_client):
         headers=headers,
     )
     assert resp.status_code == 400
+
+
+def test_patch_score_threshold_below_noise_floor_rejected(app_client):
+    """PATCH scoreThreshold=0.10 (< 0.30 noise floor) returns 400."""
+    from api import get_database
+    db = get_database()
+    headers = _csrf(app_client)
+    tid = _seed_template(db, 'f', 25)
+
+    resp = app_client.patch(
+        f'/api/v1/cue-templates/{tid}',
+        json={'scoreThreshold': 0.10},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_patch_score_threshold_at_noise_floor_accepted(app_client):
+    """PATCH scoreThreshold=0.30 (exactly the floor) is accepted."""
+    from api import get_database
+    db = get_database()
+    headers = _csrf(app_client)
+    tid = _seed_template(db, 'g', 26)
+
+    resp = app_client.patch(
+        f'/api/v1/cue-templates/{tid}',
+        json={'scoreThreshold': 0.30},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert abs(data['template']['scoreThreshold'] - 0.30) < 1e-6
+
+
+def test_patch_score_threshold_bool_rejected(app_client):
+    """PATCH scoreThreshold=True (bool) returns 400; would silently coerce to 1.0."""
+    from api import get_database
+    db = get_database()
+    headers = _csrf(app_client)
+    tid = _seed_template(db, 'h', 27)
+
+    resp = app_client.patch(
+        f'/api/v1/cue-templates/{tid}',
+        json={'scoreThreshold': True},
+        headers=headers,
+    )
+    assert resp.status_code == 400

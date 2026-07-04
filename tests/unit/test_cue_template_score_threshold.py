@@ -13,11 +13,17 @@ Covers:
 """
 import os
 import sys
+import tempfile
+
+# Must set before any src import to prevent config.py from baking /app/data
+# as DATA_DIR when run in a targeted subset (same pattern as test_cue_boundary_snap.py).
+os.environ.setdefault('MINUSPOD_DATA_DIR', tempfile.mkdtemp(prefix='cue_thr_unit_test_'))
+os.environ.setdefault('SECRET_KEY', 'test-secret')
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import numpy as np
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from audio_analysis.cue_features import N_COEFFS, serialize_mfcc
 from audio_analysis.cue_template_matcher import AudioCueTemplateMatcher
@@ -410,4 +416,88 @@ def test_suggest_sweep_strips_per_template_thresholds():
     # Sweep (stripped) must find the occurrence; gated must not.
     assert len(m_sweep[1]) >= 1, "sweep matcher must find planted occurrence after strip"
     assert len(m_gated[1]) == 0, "unstripped per-template 0.99 must block the occurrence"
+
+
+# ---------------------------------------------------------------------------
+# Shared validator: _normalize_nullable_finite_float (findings 2, 3, 4, 5)
+# ---------------------------------------------------------------------------
+
+def test_shared_validator_rejects_nan():
+    """NaN passes range comparisons (NaN < lo is False); validator must catch it."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(float('nan'), 'field', 0.0, 1.0)
+    assert err is not None
+    assert val is None
+
+
+def test_shared_validator_rejects_inf():
+    """Infinity must be rejected explicitly."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(float('inf'), 'field', 0.0, 1.0)
+    assert err is not None
+    assert val is None
+
+
+def test_shared_validator_rejects_neg_inf():
+    """Negative infinity must be rejected."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(float('-inf'), 'field', 0.0, 1.0)
+    assert err is not None
+    assert val is None
+
+
+def test_shared_validator_rejects_bool_true():
+    """True coerces to 1.0 via float(); must be rejected as a boolean."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(True, 'field', 0.0, 2.0)
+    assert err is not None
+    assert val is None
+
+
+def test_shared_validator_rejects_bool_false():
+    """False coerces to 0.0 via float(); must be rejected as a boolean."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(False, 'field', 0.0, 2.0)
+    assert err is not None
+    assert val is None
+
+
+def test_shared_validator_empty_string_clears():
+    """Empty string must clear the override (return None, None)."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float('', 'field', 0.0, 1.0)
+    assert err is None
+    assert val is None
+
+
+def test_shared_validator_none_clears():
+    """None must clear the override (return None, None)."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(None, 'field', 0.0, 1.0)
+    assert err is None
+    assert val is None
+
+
+def test_shared_validator_valid_float_accepted():
+    """A normal in-range float must be accepted and returned as float."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(0.75, 'field', 0.30, 0.99)
+    assert err is None
+    assert abs(val - 0.75) < 1e-9
+
+
+def test_shared_validator_rejects_below_floor():
+    """Value below lo must return an error."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(0.10, 'field', 0.30, 0.99)
+    assert err is not None
+    assert val is None
+
+
+def test_shared_validator_rejects_above_ceiling():
+    """Value above hi must return an error."""
+    from api import _normalize_nullable_finite_float
+    val, err = _normalize_nullable_finite_float(1.0, 'field', 0.30, 0.99)
+    assert err is not None
+    assert val is None
 
