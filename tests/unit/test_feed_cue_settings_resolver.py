@@ -54,6 +54,8 @@ class _DB:
 
 
 class _ErrorDB:
+    """All DB calls raise -- simulates total DB failure."""
+
     def get_podcast_cue_settings_overrides(self, podcast_id):
         raise RuntimeError('db error')
 
@@ -62,6 +64,13 @@ class _ErrorDB:
 
     def get_setting_float(self, key, default=0.0):
         raise RuntimeError('db error')
+
+
+class _OverrideErrorDB(_DB):
+    """Override read raises but global reads succeed normally."""
+
+    def get_podcast_cue_settings_overrides(self, podcast_id):
+        raise RuntimeError('override read failed')
 
 
 # -- Override wins --
@@ -171,13 +180,39 @@ def test_no_podcast_id_skips_override():
     assert result['snap_confidence'] == 0.88
 
 
-# -- Exception falls back to defaults --
+# -- Override-read failure falls through to globals (not code defaults) --
 
-def test_exception_falls_back_to_defaults():
-    result = resolve_feed_cue_settings(_ErrorDB(), 1)
-    assert result['create_from_pairs'] is _CREATE_FROM_PAIRS_DEFAULT
-    assert result['snap_confidence'] == AUDIO_CUE_SNAP_CONFIDENCE
-    assert result['snap_lead'] == DEFAULT_SNAP_LEAD_SECONDS
+def test_override_error_still_uses_globals():
+    """Override read raises -> resolver falls through to global DB settings."""
+    db = _OverrideErrorDB(
+        global_vals={
+            'audio_cue_create_from_pairs': True,
+            'audio_cue_snap_confidence': 0.77,
+            'audio_cue_snap_lead_seconds': 3.5,
+            'audio_cue_snap_lag_seconds': 1.5,
+            'audio_cue_pair_min_break_seconds': 12.0,
+            'audio_cue_pair_max_break_seconds': 200.0,
+            'audio_cue_pair_max_break_fraction': 0.4,
+        }
+    )
+    result = resolve_feed_cue_settings(db, 1)
+    assert result['create_from_pairs'] is True
+    assert result['snap_confidence'] == 0.77
+    assert result['snap_lead'] == 3.5
+    assert result['snap_lag'] == 1.5
+    assert result['pair_min_break'] == 12.0
+
+
+def test_override_error_logs_warning(caplog):
+    """Override read failure must emit a logger.warning."""
+    import logging
+    db = _OverrideErrorDB(global_vals={})
+    with caplog.at_level(logging.WARNING, logger='config'):
+        resolve_feed_cue_settings(db, 1)
+    assert any('override read failed' in r.message or 'override' in r.message.lower()
+               for r in caplog.records), (
+        f"Expected a warning about override read failure; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_no_db_returns_defaults():

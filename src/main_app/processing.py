@@ -14,11 +14,7 @@ from ad_detector import (
     refine_ad_boundaries, snap_early_ads_to_zero, merge_same_sponsor_ads,
     extend_ad_boundaries_by_content,
 )
-from ad_detector.cue_boundary_snap import (
-    snap_ad_boundaries_to_cues,
-    DEFAULT_SNAP_LEAD_SECONDS,
-    DEFAULT_SNAP_LAG_SECONDS,
-)
+from ad_detector.cue_boundary_snap import snap_ad_boundaries_to_cues
 from ad_detector.cue_pair_ads import synthesize_ads_from_cue_pairs
 from ad_detector.cue_telemetry import build_cue_detection_records
 from ad_reviewer import (
@@ -28,9 +24,7 @@ from cancel import ProcessingCancelled, _check_cancel, _cancel_events, _cancel_e
 from utils.time import utc_now_iso
 from config import (
     MIN_CUT_CONFIDENCE, MAX_EPISODE_RETRIES,
-    AUDIO_CUE_SNAP_CONFIDENCE, AUDIO_CUE_PAIR_CONFIDENCE,
-    AUDIO_CUE_PAIR_MIN_BREAK_SECONDS, AUDIO_CUE_PAIR_MAX_BREAK_SECONDS,
-    AUDIO_CUE_PAIR_MAX_BREAK_FRACTION, AUDIO_CUE_PAIR_ORIENT_WINDOW_SECONDS,
+    AUDIO_CUE_PAIR_CONFIDENCE, AUDIO_CUE_PAIR_ORIENT_WINDOW_SECONDS,
     resolve_feed_cue_settings,
 )
 from llm_capabilities import (
