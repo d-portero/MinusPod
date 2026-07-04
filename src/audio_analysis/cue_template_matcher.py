@@ -252,9 +252,12 @@ class AudioCueTemplateMatcher:
         # whether to lower the threshold or remark the cue.
         for tpl in self._templates:
             peak = per_template_peak_score.get(tpl.template_id, 0.0)
+            eff_threshold = (tpl.score_threshold
+                             if tpl.score_threshold is not None
+                             else self.score_threshold)
             logger.info(
                 f"Cue template {tpl.template_id} ({tpl.label!r}): "
-                f"peak score {peak:.3f} vs threshold {self.score_threshold:.3f}, "
+                f"peak score {peak:.3f} vs threshold {eff_threshold:.3f}, "
                 f"{match_counts[tpl.template_id]} match(es)"
             )
         logger.info(

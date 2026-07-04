@@ -1225,8 +1225,12 @@ def _run_cue_threshold_scan(podcast_id, episode_id, slug, audio_paths,
         peaks = {}
         # The matcher is stateless across episodes (audio is decoded inside
         # detect_with_debug), so build it once instead of per episode.
+        # Strip per-template score_threshold so the sweep sees the full score
+        # distribution at AUDIO_CUE_SUGGEST_FLOOR; per-template gates would
+        # hide sub-threshold occurrences and bias the gap-finder.
+        sweep_templates = [{**t, 'score_threshold': None} for t in templates]
         matcher = AudioCueTemplateMatcher(
-            templates,
+            sweep_templates,
             score_threshold=AUDIO_CUE_SUGGEST_FLOOR,
             max_matches_per_template=200,
             formant_atten_db=formant_atten,

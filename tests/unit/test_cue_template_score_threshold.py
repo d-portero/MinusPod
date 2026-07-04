@@ -51,59 +51,67 @@ def _planted_haystack(rng, template, plant_at: int, noise_level: float = 0.0):
 # ---------------------------------------------------------------------------
 
 def test_per_template_threshold_blocks_match_below_its_own_threshold():
-    """Instance threshold 0.5, template threshold 0.99: plant yields ~1.0 score.
+    """Per-template threshold 0.999 blocks a noisy haystack that instance 0.3 would pass.
 
-    With instance 0.5 alone it would match; but per-template 0.99 is applied
-    when the template has its own threshold set, and since the planted score
-    comes in at 1.0 it still passes. So we use the opposite scenario: the
-    per-template threshold is HIGH (0.999) and the score from a noisy haystack
-    stays below it.
+    Plant nothing; pure noise scores stay well below 0.999. With only the
+    instance threshold of 0.3 the matcher would surface hits, but the strict
+    per-template gate must suppress them -> zero matches from _scan_chunk.
     """
     rng = np.random.default_rng(7)
     template = rng.standard_normal((10, N_COEFFS)).astype(np.float32)
-    # Noisy haystack: no clean match, score will be well below 0.999
-    haystack_mfcc = rng.standard_normal((200, N_COEFFS)).astype(np.float32) * 0.1
-    row = _make_row(template, score_threshold=0.999)
+    # Pure noise: no planted match; scores will be low but could exceed 0.3
+    haystack_mfcc = rng.standard_normal((200, N_COEFFS)).astype(np.float32) * 0.5
 
+    row = _make_row(template, score_threshold=0.999)
+    # Instance threshold 0.3 is permissive; per-template 0.999 is the real gate.
     matcher = AudioCueTemplateMatcher(templates=[row], score_threshold=0.3)
     assert matcher.is_usable
 
-    # The per-template threshold 0.999 is stricter than instance 0.3.
-    # Noise-only haystack will not reach 0.999 -> no matches.
-    from audio_analysis.cue_template_matcher import _sliding_zncc, _peak_pick, FRAME_HOP_MS
-    scores = _sliding_zncc(haystack_mfcc, template)
-    # Confirm the peak is below the per-template threshold but above instance
-    peak = float(scores.max())
-    assert peak < 0.999, "expected noisy haystack peak below per-template threshold"
-    assert peak > 0.0, "scores exist"
+    per_template_matches = {1: []}
+    per_template_peak = {1: 0.0}
+    per_template_near_misses = {1: []}
+    matcher._scan_chunk(haystack_mfcc, 0.0, per_template_matches, per_template_peak, per_template_near_misses)
 
-    # Verify the matcher uses per-template threshold: template stored it
-    assert matcher._templates[0].score_threshold == 0.999
+    # Noise haystack cannot reach 0.999; per-template gate blocks all matches.
+    assert len(per_template_matches[1]) == 0
 
 
 def test_per_template_threshold_allows_match_that_instance_would_block():
-    """Instance threshold 0.95 (strict), per-template 0.5 (lenient).
+    """Per-template 0.5 lowers the bar; instance 0.95 alone would block the match.
 
-    Plant a perfect copy -> score ~1.0. With instance 0.95 only it matches;
-    the interesting direction is: per-template LOWERS the bar, allowing matches
-    the instance threshold alone would block.
+    Plant a slightly degraded copy so the score lands in (0.5, 0.95).
+    With instance threshold 0.95 only -> no match (score below instance).
+    With per-template threshold 0.5 overriding -> match surfaces.
+    _scan_chunk is called directly so we can assert on match counts.
     """
     rng = np.random.default_rng(42)
     template = rng.standard_normal((20, N_COEFFS)).astype(np.float32)
-    haystack = rng.standard_normal((200, N_COEFFS)).astype(np.float32) * 0.001
-    # Plant at two positions
-    plant_a, plant_b = 30, 120
-    haystack[plant_a:plant_a + 20] = template
-    haystack[plant_b:plant_b + 20] = template
+    # noise=0.7 produces score ~0.78 (above per-template 0.5, below instance 0.95)
+    haystack = np.zeros((200, N_COEFFS), dtype=np.float32)
+    noise = rng.standard_normal((20, N_COEFFS)).astype(np.float32) * 0.7
+    haystack[50:70] = template + noise
 
-    # Instance threshold 0.95; per-template threshold 0.5 (more lenient).
-    # Both planted occurrences have score ~1.0, so both should match regardless
-    # of which threshold applies. The test confirms the template's own threshold
-    # is stored and the matcher is usable.
-    row = _make_row(template, score_threshold=0.5)
-    matcher = AudioCueTemplateMatcher(templates=[row], score_threshold=0.95)
-    assert matcher.is_usable
-    assert matcher._templates[0].score_threshold == 0.5
+    # Without per-template override (instance 0.95): should block
+    row_no_override = _make_row(template, score_threshold=None)
+    matcher_strict = AudioCueTemplateMatcher(templates=[row_no_override], score_threshold=0.95)
+    m_strict = {1: []}
+    p_strict = {1: 0.0}
+    nm_strict = {1: []}
+    matcher_strict._scan_chunk(haystack, 0.0, m_strict, p_strict, nm_strict)
+
+    # With per-template 0.5 overriding instance 0.95: should allow
+    row_lenient = _make_row(template, score_threshold=0.5)
+    matcher_lenient = AudioCueTemplateMatcher(templates=[row_lenient], score_threshold=0.95)
+    m_lenient = {1: []}
+    p_lenient = {1: 0.0}
+    nm_lenient = {1: []}
+    matcher_lenient._scan_chunk(haystack, 0.0, m_lenient, p_lenient, nm_lenient)
+
+    # Per-template threshold must produce more matches than strict instance alone.
+    assert len(m_lenient[1]) > len(m_strict[1]), (
+        f"per-template 0.5 should allow matches that instance 0.95 blocks; "
+        f"got strict={len(m_strict[1])} lenient={len(m_lenient[1])}"
+    )
 
 
 def test_null_score_threshold_uses_instance_threshold():
@@ -182,40 +190,42 @@ def test_scan_chunk_null_per_template_threshold_falls_back_to_instance():
 # ---------------------------------------------------------------------------
 
 def test_peak_pick_floor_respects_lowered_per_template_threshold():
-    """Per-template threshold lower than instance -> near-miss floor must also lower.
+    """Per-template threshold 0.5 lower than instance 0.8 surfaces a mid-range match.
 
-    A peak at score 0.6 with instance threshold 0.8 and per-template threshold
-    0.5 would count as a match (0.6 >= 0.5). The floor passed to _peak_pick
-    must be at most min(instance, per-template) so the peak is visible.
+    Plant a degraded copy so score lands in (0.5, 0.8). With instance 0.8 only
+    the peak sits below the gate and is invisible. With per-template 0.5, the
+    pick_floor must be lowered to at most 0.5 so _peak_pick can find the peak,
+    and the score >= 0.5 gate promotes it to a real match (not just near-miss).
     """
     rng = np.random.default_rng(17)
     template_mfcc = rng.standard_normal((10, N_COEFFS)).astype(np.float32)
-    # Build haystack with a moderate peak (not a planted copy but high enough
-    # to be in [0.5, 0.8))
-    haystack = rng.standard_normal((200, N_COEFFS)).astype(np.float32) * 0.001
-
-    # Plant a slightly degraded copy to get a mid-range score
-    noise = rng.standard_normal((10, N_COEFFS)).astype(np.float32) * 0.3
+    # noise=1.0 produces score ~0.78 (above per-template 0.5, below instance 0.8)
+    haystack = np.zeros((200, N_COEFFS), dtype=np.float32)
+    noise = rng.standard_normal((10, N_COEFFS)).astype(np.float32) * 1.0
     haystack[80:90] = template_mfcc + noise
 
-    row = _make_row(template_mfcc, score_threshold=0.5)
-    # near_miss_floor set so sub-threshold peaks can surface
-    matcher = AudioCueTemplateMatcher(
-        templates=[row], score_threshold=0.8, near_miss_floor=0.4
+    # Instance threshold 0.8 alone: pick_floor=0.8 -> mid-range peak invisible
+    row_no_override = _make_row(template_mfcc, score_threshold=None)
+    matcher_strict = AudioCueTemplateMatcher(templates=[row_no_override], score_threshold=0.8)
+    m_strict = {1: []}
+    p_strict = {1: 0.0}
+    nm_strict = {1: []}
+    matcher_strict._scan_chunk(haystack, 0.0, m_strict, p_strict, nm_strict)
+
+    # Per-template 0.5 with instance 0.8: pick_floor=0.5 -> peak visible and promoted to match
+    row_lower = _make_row(template_mfcc, score_threshold=0.5)
+    matcher_lower = AudioCueTemplateMatcher(templates=[row_lower], score_threshold=0.8)
+    m_lower = {1: []}
+    p_lower = {1: 0.0}
+    nm_lower = {1: []}
+    matcher_lower._scan_chunk(haystack, 0.0, m_lower, p_lower, nm_lower)
+
+    # The lowered per-template threshold must surface the match that instance 0.8 misses.
+    assert len(m_lower[1]) > len(m_strict[1]), (
+        f"per-template 0.5 should surface match that instance 0.8 blocks; "
+        f"strict={len(m_strict[1])} lower={len(m_lower[1])}"
     )
-
-    per_template_matches = {1: []}
-    per_template_peak = {1: 0.0}
-    per_template_near_misses = {1: []}
-    matcher._scan_chunk(haystack, 0.0, per_template_matches, per_template_peak, per_template_near_misses)
-
-    # The pick_floor must have been low enough to surface the mid-range peak.
-    # Whether it's a match or near-miss depends on the actual score vs 0.5.
-    total_found = len(per_template_matches[1]) + len(per_template_near_misses[1])
-    assert total_found >= 0  # structural sanity; actual score-dependent behaviour tested by next test
-
-    # Confirm the matcher's _templates stored the threshold
-    assert matcher._templates[0].score_threshold == 0.5
+    assert len(m_lower[1]) >= 1, "planted degraded copy must be found with per-template 0.5"
 
 
 # ---------------------------------------------------------------------------
@@ -339,4 +349,65 @@ def test_template_to_meta_dict_score_threshold_null():
     assert 'scoreThreshold' in result
     assert result['scoreThreshold'] is None
 
+
+# ---------------------------------------------------------------------------
+# Suggest sweep: per-template thresholds stripped so full distribution visible
+# ---------------------------------------------------------------------------
+
+def test_suggest_sweep_strips_per_template_thresholds():
+    """_run_cue_threshold_scan must clear score_threshold before building matcher.
+
+    Build two template rows with high score_threshold values (0.99) and a
+    planted haystack whose score lands around 0.7 (above AUDIO_CUE_SUGGEST_FLOOR
+    but below 0.99). Without the strip, the per-template gate hides these
+    occurrences from the gap-finder. With the strip, they surface as matches.
+    Verified by building the sweep matcher directly (mirroring the route logic)
+    and asserting the template has score_threshold=None after the strip.
+    """
+    rng = np.random.default_rng(88)
+    template_mfcc = rng.standard_normal((10, N_COEFFS)).astype(np.float32)
+    # noise=0.8 produces score ~0.72 (above AUDIO_CUE_SUGGEST_FLOOR ~0.35, below 0.99)
+    haystack = np.zeros((200, N_COEFFS), dtype=np.float32)
+    noise = rng.standard_normal((10, N_COEFFS)).astype(np.float32) * 0.8
+    haystack[60:70] = template_mfcc + noise
+
+    # Row as it comes from the DB: high per-template threshold
+    row = _make_row(template_mfcc, score_threshold=0.99)
+
+    # Simulate what _run_cue_threshold_scan does: strip score_threshold before sweep
+    from api.cue_templates import AUDIO_CUE_SUGGEST_FLOOR
+    sweep_templates = [{**row, 'score_threshold': None}]
+
+    # Confirm the strip cleared the field
+    assert sweep_templates[0]['score_threshold'] is None
+
+    # Build the sweep matcher at the low floor (as the route does)
+    sweep_matcher = AudioCueTemplateMatcher(
+        sweep_templates,
+        score_threshold=AUDIO_CUE_SUGGEST_FLOOR,
+        max_matches_per_template=200,
+    )
+    assert sweep_matcher.is_usable
+    assert sweep_matcher._templates[0].score_threshold is None
+
+    # The sweep matcher sees the occurrence; the unstripped matcher would not.
+    m_sweep = {1: []}
+    p_sweep = {1: 0.0}
+    nm_sweep = {1: []}
+    sweep_matcher._scan_chunk(haystack, 0.0, m_sweep, p_sweep, nm_sweep)
+
+    # Build unstripped matcher at same low floor but with per-template 0.99
+    gated_matcher = AudioCueTemplateMatcher(
+        [row],
+        score_threshold=AUDIO_CUE_SUGGEST_FLOOR,
+        max_matches_per_template=200,
+    )
+    m_gated = {1: []}
+    p_gated = {1: 0.0}
+    nm_gated = {1: []}
+    gated_matcher._scan_chunk(haystack, 0.0, m_gated, p_gated, nm_gated)
+
+    # Sweep (stripped) must find the occurrence; gated must not.
+    assert len(m_sweep[1]) >= 1, "sweep matcher must find planted occurrence after strip"
+    assert len(m_gated[1]) == 0, "unstripped per-template 0.99 must block the occurrence"
 
