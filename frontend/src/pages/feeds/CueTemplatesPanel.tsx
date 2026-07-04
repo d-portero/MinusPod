@@ -180,8 +180,8 @@ function CueTemplatesPanel({ slug }: Props) {
       return;
     }
     const val = parseFloat(trimmed);
-    if (isNaN(val) || val < 0 || val > 0.99) {
-      setActionError('Score threshold must be a number between 0 and 0.99');
+    if (isNaN(val) || val < 0.30 || val > 0.99) {
+      setActionError('Score threshold must be a number between 0.30 and 0.99');
       return;
     }
     if (val !== template.scoreThreshold) {
@@ -450,7 +450,7 @@ function CueTemplatesPanel({ slug }: Props) {
                           <input
                             type="number"
                             autoFocus
-                            min={0}
+                            min={0.30}
                             max={0.99}
                             step={0.01}
                             value={editThresholdValue}
@@ -934,7 +934,10 @@ function CueScanModal({ slug, onClose }: CueScanModalProps) {
             </p>
             <ul className="divide-y divide-border border border-border rounded">
               {result.templates.map((t) => {
-                const passed = t.peakScore >= result.thresholdUsed;
+                // Use per-template effective threshold when available (set when
+                // a per-template override governs this template's matching).
+                const tplThreshold = (t as { effThreshold?: number }).effThreshold ?? result.thresholdUsed;
+                const passed = t.peakScore >= tplThreshold;
                 return (
                   <li key={t.id} className="p-3">
                     <div className="flex items-center justify-between gap-2">

@@ -6,10 +6,53 @@ import type { Feed } from '../../api/types';
 import CollapsibleSection from '../../components/CollapsibleSection';
 import TriStateSelect from '../../components/TriStateSelect';
 import { WHISPER_LANGUAGES, labelForLanguage } from '../../utils/whisperLanguages';
+import { useSyncFromQuery } from '../../hooks/useSyncFromQuery';
 
 interface Props {
   feed: Feed;
   slug: string;
+}
+
+// Props for the per-field cue override row. Defined at module scope so its
+// identity is stable across parent renders (avoids remount on every keystroke).
+interface CueOverrideRowProps {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: string;
+  setValue: (v: string) => void;
+  field: keyof UpdateFeedPayload;
+  feedValue: number | null | undefined;
+  hint: string;
+  onBlur: () => void;
+  disabled: boolean;
+}
+
+function CueOverrideRow({
+  label, min, max, step, value, setValue, feedValue, hint, onBlur, disabled,
+}: CueOverrideRowProps) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm">
+      <span className="text-muted-foreground whitespace-nowrap sm:w-32 shrink-0">{label}:</span>
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          type="number" min={min} max={max} step={step}
+          value={value} placeholder="global"
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={onBlur}
+          disabled={disabled}
+          className="w-24 px-2 py-1.5 text-sm bg-secondary border border-border rounded disabled:opacity-50"
+        />
+        <span className="text-xs text-muted-foreground">{hint}</span>
+        {feedValue != null && (
+          <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-600 dark:text-blue-400">
+            Override: {feedValue}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function FeedSettingsPanel({ feed, slug }: Props) {
@@ -31,44 +74,33 @@ function FeedSettingsPanel({ feed, slug }: Props) {
     queryFn: getSettings,
   });
 
-  // Encapsulates input/prev state pair + render-time reset when server value changes.
-  function useServerSyncedString(serverValue: string): [string, (v: string) => void] {
-    const [input, setInput] = useState(serverValue);
-    const [prev, setPrev] = useState(serverValue);
-    if (serverValue !== prev) {
-      setPrev(serverValue);
-      setInput(serverValue);
-    }
-    return [input, setInput];
-  }
-
   const s = (v: number | null | undefined) => (v != null ? String(v) : '');
 
-  const [cueScoreInput, setCueScoreInput] = useServerSyncedString(
+  // Per-field input state. useSyncFromQuery reseeds from the server value
+  // whenever the query object identity changes (same render-phase pattern
+  // used by Settings.tsx), avoiding the one-frame stale UI of useEffect.
+  const [cueScoreInput, setCueScoreInput] = useState(
     feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : '');
-  const [pairMinInput, setPairMinInput] = useServerSyncedString(s(feed.cuePairMinBreakOverride));
-  const [pairMaxInput, setPairMaxInput] = useServerSyncedString(s(feed.cuePairMaxBreakOverride));
-  const [pairFracInput, setPairFracInput] = useServerSyncedString(s(feed.cuePairMaxBreakFractionOverride));
-  const [snapConfInput, setSnapConfInput] = useServerSyncedString(s(feed.cueSnapConfidenceOverride));
-  const [snapLeadInput, setSnapLeadInput] = useServerSyncedString(s(feed.cueSnapLeadOverride));
-  const [snapLagInput, setSnapLagInput] = useServerSyncedString(s(feed.cueSnapLagOverride));
+  const [pairMinInput, setPairMinInput] = useState(s(feed.cuePairMinBreakOverride));
+  const [pairMaxInput, setPairMaxInput] = useState(s(feed.cuePairMaxBreakOverride));
+  const [pairFracInput, setPairFracInput] = useState(s(feed.cuePairMaxBreakFractionOverride));
+  const [snapConfInput, setSnapConfInput] = useState(s(feed.cueSnapConfidenceOverride));
+  const [snapLeadInput, setSnapLeadInput] = useState(s(feed.cueSnapLeadOverride));
+  const [snapLagInput, setSnapLagInput] = useState(s(feed.cueSnapLagOverride));
 
-  function commitFloat(
-    raw: string,
-    field: keyof UpdateFeedPayload,
-    lo: number,
-    hi: number,
-    reset: () => void,
-  ) {
-    const trimmed = raw.trim();
-    if (trimmed === '') { updateMutation.mutate({ [field]: null }); return; }
-    const v = parseFloat(trimmed);
-    if (!Number.isNaN(v) && v >= lo && v <= hi) {
-      updateMutation.mutate({ [field]: v });
-    } else {
-      reset();
-    }
-  }
+  // Reseed inputs from the server feed object when it changes (e.g. after a
+  // successful mutation or a background refetch). This mirrors useSyncFromQuery
+  // applied to each field individually so that a mutation response immediately
+  // reflects the persisted value without waiting for a second refetch.
+  useSyncFromQuery(feed, (f) => {
+    setCueScoreInput(f.cueTemplateScoreOverride != null ? String(f.cueTemplateScoreOverride) : '');
+    setPairMinInput(s(f.cuePairMinBreakOverride));
+    setPairMaxInput(s(f.cuePairMaxBreakOverride));
+    setPairFracInput(s(f.cuePairMaxBreakFractionOverride));
+    setSnapConfInput(s(f.cueSnapConfidenceOverride));
+    setSnapLeadInput(s(f.cueSnapLeadOverride));
+    setSnapLagInput(s(f.cueSnapLagOverride));
+  });
 
   const updateMutation = useMutation({
     mutationFn: (data: UpdateFeedPayload) => updateFeed(slug, data),
@@ -79,6 +111,33 @@ function FeedSettingsPanel({ feed, slug }: Props) {
       setIsEditingNetwork(false);
     },
   });
+
+  function commitFloat(
+    raw: string,
+    serverValue: number | null | undefined,
+    field: keyof UpdateFeedPayload,
+    lo: number,
+    hi: number,
+    reset: () => void,
+  ) {
+    const trimmed = raw.trim();
+    if (trimmed === '') {
+      // Clearing the field: only mutate if there was actually a server value.
+      if (serverValue != null) {
+        updateMutation.mutate({ [field]: null });
+      }
+      return;
+    }
+    const v = parseFloat(trimmed);
+    if (!Number.isNaN(v) && v >= lo && v <= hi) {
+      // Only send the PATCH when the normalized value differs from the server value.
+      if (v !== serverValue) {
+        updateMutation.mutate({ [field]: v });
+      }
+    } else {
+      reset();
+    }
+  }
 
   const startEditingNetwork = () => {
     const override = feed.networkIdOverride || '';
@@ -118,35 +177,6 @@ function FeedSettingsPanel({ feed, slug }: Props) {
       maxEpisodes: maxEp !== null && !isNaN(maxEp) ? Math.max(10, Math.min(maxEp, 500)) : null,
     });
   };
-
-  function CueOverrideRow({ label, min, max, step, value, setValue, field, feedValue, hint }: {
-    label: string; min: number; max: number; step: number;
-    value: string; setValue: (v: string) => void;
-    field: keyof UpdateFeedPayload; feedValue: number | null | undefined;
-    hint: string;
-  }) {
-    return (
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm">
-        <span className="text-muted-foreground whitespace-nowrap sm:w-32 shrink-0">{label}:</span>
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            type="number" min={min} max={max} step={step}
-            value={value} placeholder="global"
-            onChange={(e) => setValue(e.target.value)}
-            onBlur={() => commitFloat(value, field, min, max, () => setValue(s(feedValue)))}
-            disabled={updateMutation.isPending}
-            className="w-24 px-2 py-1.5 text-sm bg-secondary border border-border rounded disabled:opacity-50"
-          />
-          <span className="text-xs text-muted-foreground">{hint}</span>
-          {feedValue != null && (
-            <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-600 dark:text-blue-400">
-              Override: {feedValue}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="mb-6">
@@ -334,8 +364,13 @@ function FeedSettingsPanel({ feed, slug }: Props) {
                     : '0.75'
                 }
                 onChange={(e) => setCueScoreInput(e.target.value)}
-                onBlur={() => commitFloat(cueScoreInput, 'cueTemplateScoreOverride', CUE_SCORE_MIN, CUE_SCORE_MAX,
-                  () => setCueScoreInput(feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : ''))}
+                onBlur={() => commitFloat(
+                  cueScoreInput,
+                  feed.cueTemplateScoreOverride,
+                  'cueTemplateScoreOverride',
+                  CUE_SCORE_MIN, CUE_SCORE_MAX,
+                  () => setCueScoreInput(feed.cueTemplateScoreOverride != null ? String(feed.cueTemplateScoreOverride) : ''),
+                )}
                 disabled={updateMutation.isPending}
                 className="w-24 px-2 py-1.5 text-sm bg-secondary border border-border rounded disabled:opacity-50"
               />
@@ -376,27 +411,51 @@ function FeedSettingsPanel({ feed, slug }: Props) {
               <CueOverrideRow label="Pair min break" min={1} max={600} step={1}
                 value={pairMinInput} setValue={setPairMinInput}
                 field="cuePairMinBreakOverride" feedValue={feed.cuePairMinBreakOverride}
-                hint="s, empty = global" />
+                hint="s, empty = global"
+                disabled={updateMutation.isPending}
+                onBlur={() => commitFloat(pairMinInput, feed.cuePairMinBreakOverride,
+                  'cuePairMinBreakOverride', 1, 600,
+                  () => setPairMinInput(s(feed.cuePairMinBreakOverride)))} />
               <CueOverrideRow label="Pair max break" min={1} max={3600} step={1}
                 value={pairMaxInput} setValue={setPairMaxInput}
                 field="cuePairMaxBreakOverride" feedValue={feed.cuePairMaxBreakOverride}
-                hint="s, empty = global" />
+                hint="s, empty = global"
+                disabled={updateMutation.isPending}
+                onBlur={() => commitFloat(pairMaxInput, feed.cuePairMaxBreakOverride,
+                  'cuePairMaxBreakOverride', 1, 3600,
+                  () => setPairMaxInput(s(feed.cuePairMaxBreakOverride)))} />
               <CueOverrideRow label="Pair max fraction" min={0} max={1} step={0.05}
                 value={pairFracInput} setValue={setPairFracInput}
                 field="cuePairMaxBreakFractionOverride" feedValue={feed.cuePairMaxBreakFractionOverride}
-                hint="0-1, empty = global" />
+                hint="0-1, empty = global"
+                disabled={updateMutation.isPending}
+                onBlur={() => commitFloat(pairFracInput, feed.cuePairMaxBreakFractionOverride,
+                  'cuePairMaxBreakFractionOverride', 0, 1,
+                  () => setPairFracInput(s(feed.cuePairMaxBreakFractionOverride)))} />
               <CueOverrideRow label="Snap confidence" min={0} max={1} step={0.01}
                 value={snapConfInput} setValue={setSnapConfInput}
                 field="cueSnapConfidenceOverride" feedValue={feed.cueSnapConfidenceOverride}
-                hint="0-1, empty = global" />
+                hint="0-1, empty = global"
+                disabled={updateMutation.isPending}
+                onBlur={() => commitFloat(snapConfInput, feed.cueSnapConfidenceOverride,
+                  'cueSnapConfidenceOverride', 0, 1,
+                  () => setSnapConfInput(s(feed.cueSnapConfidenceOverride)))} />
               <CueOverrideRow label="Snap lead" min={0.5} max={30} step={0.5}
                 value={snapLeadInput} setValue={setSnapLeadInput}
                 field="cueSnapLeadOverride" feedValue={feed.cueSnapLeadOverride}
-                hint="s, empty = global" />
+                hint="s, empty = global"
+                disabled={updateMutation.isPending}
+                onBlur={() => commitFloat(snapLeadInput, feed.cueSnapLeadOverride,
+                  'cueSnapLeadOverride', 0.5, 30,
+                  () => setSnapLeadInput(s(feed.cueSnapLeadOverride)))} />
               <CueOverrideRow label="Snap lag" min={0.5} max={30} step={0.5}
                 value={snapLagInput} setValue={setSnapLagInput}
                 field="cueSnapLagOverride" feedValue={feed.cueSnapLagOverride}
-                hint="s, empty = global" />
+                hint="s, empty = global"
+                disabled={updateMutation.isPending}
+                onBlur={() => commitFloat(snapLagInput, feed.cueSnapLagOverride,
+                  'cueSnapLagOverride', 0.5, 30,
+                  () => setSnapLagInput(s(feed.cueSnapLagOverride)))} />
             </div>
           </CollapsibleSection>
 
