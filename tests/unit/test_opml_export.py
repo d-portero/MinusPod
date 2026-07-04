@@ -172,10 +172,12 @@ class TestOpmlExportStructure:
             assert outline.get('xmlUrl') is not None
 
     @patch('api.feeds.get_database')
-    def test_content_type_is_xml(self, mock_db, client):
+    def test_download_is_octet_stream_with_opml_filename(self, mock_db, client):
+        # octet-stream (not application/xml) so iOS keeps the .opml extension.
         mock_db.return_value.get_all_podcasts.return_value = []
         response = client.get('/api/v1/feeds/export-opml')
-        assert 'application/xml' in response.content_type
+        assert 'application/octet-stream' in response.content_type
+        assert '.opml' in response.headers['Content-Disposition']
 
     @patch('api.feeds.get_database')
     def test_empty_feeds_exports_valid_opml(self, mock_db, client):

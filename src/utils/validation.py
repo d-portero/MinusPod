@@ -45,6 +45,7 @@ RESERVED_SLUGS: Final = frozenset(
         "logout",
         "settings",
         "episodes",
+        "opml",
     }
 )
 

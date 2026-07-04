@@ -37,6 +37,7 @@ from llm_client import (
     get_llm_client, create_client_for_provider, _JSON_FORMAT_SETTING_KEY,
 )
 from utils.language import LANGUAGE_CODE_RE
+from utils.opml import modified_feed_url
 from utils.url import validate_base_url, SSRFError
 from utils.http import safe_url_for_log
 from utils.secret_writes import SecretWriteRejected, set_or_clear_secret
@@ -164,6 +165,15 @@ def get_settings():
     # Bearer key for authenticated feeds; intentionally readable (the UI/API
     # must display it so the operator can subscribe apps with it).
     feed_auth_key = _setting_value(settings, 'feed_auth_key', '') or None
+    # Copyable OPML import-by-URL links, non-null only when feed auth is on
+    # (the /opml route is key-gated and 404s otherwise). Server-built because
+    # the frontend cannot know the public feed BASE_URL.
+    opml_modified_url = opml_original_url = None
+    if feed_auth_enabled and feed_auth_key:
+        # Reuse the keyed-URL shaper so the ?key= convention lives in one place.
+        _opml_base = os.environ.get('BASE_URL', 'http://localhost:8000')
+        opml_modified_url = modified_feed_url(_opml_base, 'opml/modified.opml', feed_auth_key)
+        opml_original_url = modified_feed_url(_opml_base, 'opml/original.opml', feed_auth_key)
 
     try:
         max_feed_episodes = int(_setting_value(settings, 'max_feed_episodes', '300'))
@@ -380,6 +390,8 @@ def get_settings():
             'artwork_watermark_enabled', artwork_watermark_enabled),
         'feedAuthEnabled': _sv('feed_auth_enabled', feed_auth_enabled),
         'feedAuthKey': feed_auth_key,
+        'opmlModifiedUrl': opml_modified_url,
+        'opmlOriginalUrl': opml_original_url,
         'vttTranscriptsEnabled': _sv('vtt_transcripts_enabled', vtt_enabled),
         'chaptersEnabled': _sv('chapters_enabled', chapters_enabled),
         'chaptersModel': _sv('chapters_model', chapters_model),

@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import DropdownMenu, { DropdownMenuItem } from '../../components/DropdownMenu';
 import CollapsibleSection from '../../components/CollapsibleSection';
-import { exportOpml, downloadBackup } from '../../api/settings';
+import { exportOpml, getSettings, downloadBackup } from '../../api/settings';
+import { copyText } from '../../utils/clipboard';
 import { formatStorage } from './settingsUtils';
 
 type ActionStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -21,6 +24,21 @@ function DataManagementSection({
   const [backupStatus, setBackupStatus] = useState<ActionStatus>('idle');
   const [backupError, setBackupError] = useState('');
   const [resetConfirm, setResetConfirm] = useState(false);
+
+  // opmlModifiedUrl/opmlOriginalUrl are non-null only when feed auth is on;
+  // Copy URL is hidden otherwise (the /opml route 404s without a key).
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings });
+  const [opmlCopied, setOpmlCopied] = useState<'modified' | 'original' | null>(null);
+
+  const handleCopyOpmlUrl = async (mode: 'modified' | 'original', url: string) => {
+    if (await copyText(url)) setOpmlCopied(mode);
+  };
+
+  useEffect(() => {
+    if (!opmlCopied) return;
+    const timer = setTimeout(() => setOpmlCopied(null), 2000);
+    return () => clearTimeout(timer);
+  }, [opmlCopied]);
 
   const handleExportOpml = async (mode: 'original' | 'modified' = 'original') => {
     setOpmlStatus('loading');
@@ -106,20 +124,34 @@ function DataManagementSection({
             </div>
           </div>
           <div className="flex gap-2 mt-auto">
-            <button
-              onClick={() => handleExportOpml('modified')}
-              disabled={opmlStatus === 'loading'}
-              className="flex-1 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 transition-colors text-sm font-medium"
-            >
-              {opmlStatus === 'loading' ? 'Exporting...' : 'Modified Feeds'}
-            </button>
-            <button
-              onClick={() => handleExportOpml('original')}
-              disabled={opmlStatus === 'loading'}
-              className="flex-1 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 transition-colors text-sm font-medium"
-            >
-              {opmlStatus === 'loading' ? 'Exporting...' : 'Original Feeds'}
-            </button>
+            {(['modified', 'original'] as const).map((mode) => {
+              const url = mode === 'modified' ? settings?.opmlModifiedUrl : settings?.opmlOriginalUrl;
+              const items: DropdownMenuItem[] = [];
+              if (url) {
+                items.push({
+                  title: opmlCopied === mode ? 'Copied' : 'Copy URL',
+                  subtitle: 'For apps that import from URL',
+                  onClick: () => handleCopyOpmlUrl(mode, url),
+                });
+              }
+              items.push({
+                title: 'Download file',
+                subtitle: 'Save the .opml file',
+                onClick: () => handleExportOpml(mode),
+              });
+              return (
+                <div key={mode} className="flex-1">
+                  <DropdownMenu
+                    triggerLabel={mode === 'modified' ? 'Modified Feeds' : 'Original Feeds'}
+                    triggerClassName="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 transition-colors text-sm font-medium"
+                    disabled={opmlStatus === 'loading'}
+                    title={mode === 'modified' ? 'Export modified feeds' : 'Export original feeds'}
+                    align={mode === 'modified' ? 'left' : 'right'}
+                    items={items}
+                  />
+                </div>
+              );
+            })}
           </div>
           {renderStatusIndicator(opmlStatus, opmlError)}
         </div>

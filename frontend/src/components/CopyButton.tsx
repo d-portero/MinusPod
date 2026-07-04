@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { copyText } from '../utils/clipboard';
 
 interface CopyButtonProps {
   text: string;
@@ -28,17 +29,7 @@ function CopyButton({
   }, [copied]);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const input = document.createElement('input');
-      input.value = text;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-    }
-    setCopied(true);
+    if (await copyText(text)) setCopied(true);
   };
 
   const labelClass = hideLabelOnMobile

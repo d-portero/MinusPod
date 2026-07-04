@@ -12,7 +12,7 @@ info:
     - Monitor system status and trigger cleanup operations
     - Manage cross-episode ad patterns with network and podcast scope
     - Submit corrections to improve ad detection accuracy
-  version: 2.33.0
+  version: 2.34.0
   contact:
     name: MinusPod
   license:
@@ -386,7 +386,9 @@ paths:
                 type: string
               description: 'Attachment filename, e.g. attachment; filename="minuspod-feeds.opml"'
           content:
-            application/xml:
+            application/octet-stream:
+              # octet-stream (not application/xml) so iOS keeps the .opml
+              # extension from Content-Disposition instead of rewriting to .xml
               schema:
                 type: string
                 format: binary
@@ -396,6 +398,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /opml/{mode}.opml:
+    servers:
+      - url: /
+        description: Host root on the public feed domain (not under /api/v1)
+    get:
+      tags:
+        - Feeds
+      summary: OPML feed list for podcast apps' import-from-URL
+      description: |
+        App-level, key-gated OPML export served from the public feed domain so
+        podcast apps can import feeds directly by URL. Requires authenticated
+        feeds to be enabled and a valid feed key; returns 404 when feed auth is
+        disabled (the modified list is a bundle of keyed feed URLs and is never
+        served unauthenticated). The copyable URLs are surfaced by GET /settings
+        as opmlModifiedUrl / opmlOriginalUrl.
+      operationId: exportOpmlByUrl
+      parameters:
+        - name: mode
+          in: path
+          required: true
+          description: 'modified = MinusPod ad-free feed URLs; original = upstream source URLs'
+          schema:
+            type: string
+            enum: [modified, original]
+        - name: key
+          in: query
+          required: true
+          description: The global feed auth key
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OPML document
+          content:
+            text/xml:
+              schema:
+                type: string
+        '401':
+          description: Missing or invalid feed key
+        '404':
+          description: Feed auth disabled, or unknown mode
 
   /feeds/{slug}:
     get:
@@ -6654,6 +6698,14 @@ components:
           type: string
           nullable: true
           description: Global feed auth key (64 hex chars) carried as ?key= on feed/episode URLs and embedded in the badged cover path token; null until first enable.
+        opmlModifiedUrl:
+          type: string
+          nullable: true
+          description: Copyable public URL for importing modified (ad-free) feeds by URL; null when feed auth is disabled.
+        opmlOriginalUrl:
+          type: string
+          nullable: true
+          description: Copyable public URL for importing original (upstream) feeds by URL; null when feed auth is disabled.
         minCutConfidence:
           type: object
           properties:

@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.34.0] - 2026-07-03
+
+### Added
+
+- OPML export by URL: podcast apps that support "import from URL" can now pull the feed list directly. The Export controls (Settings > Data Management) became dropdown buttons for both modified and original feeds, each offering Copy URL and Download file. Copy URL points at a new key-gated route on the public feed domain (`/opml/<mode>.opml?key=...`), served on the fly and reusing the feed-auth key; it only appears while authenticated feeds is enabled, and the route returns 404 when feed auth is off so the feed list is never exposed unauthenticated. The copy URLs are surfaced by `GET /settings` as `opmlModifiedUrl` / `opmlOriginalUrl`. `opml` is now a reserved slug so no feed can shadow the route.
+
+### Fixed
+
+- OPML download keeps its `.opml` extension on iOS: the download is served as `application/octet-stream` instead of `application/xml`, so iOS Safari/Files no longer rewrites the filename to `.xml` or drops the extension.
+
 ## [2.33.0] - 2026-07-03
 
 ### Added

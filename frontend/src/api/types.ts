@@ -208,6 +208,8 @@ export interface Settings {
   artworkWatermarkEnabled: SettingValueBoolean;
   feedAuthEnabled: SettingValueBoolean;
   feedAuthKey: string | null;
+  opmlModifiedUrl: string | null;
+  opmlOriginalUrl: string | null;
   audioBitrate: SettingValue;
   audioNormalizeEnabled: SettingValueBoolean;
   audioNormalizeIntensity: SettingValue;

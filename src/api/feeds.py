@@ -3,7 +3,6 @@ import logging
 import os
 import re
 import time
-import xml.etree.ElementTree as ET  # defusedxml has no SubElement/tostring, so keep ET for OPML export only
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -19,6 +18,7 @@ from api import (
 )
 from positional_prior import compute_ad_distribution
 from utils.language import LANGUAGE_CODE_RE
+from utils.opml import build_opml_xml, modified_feed_url
 from utils.url import validate_url, SSRFError
 from utils.validation import is_valid_slug
 
@@ -139,9 +139,8 @@ logger = logging.getLogger('podcast.api')
 
 def _public_feed_url(slug, key):
     """Subscribable feed URL, carrying ?key= while feed auth is enabled."""
-    base_url = os.environ.get('BASE_URL', 'http://localhost:8000').rstrip('/')
-    url = f"{base_url}/{slug}"
-    return f"{url}?key={key}" if key else url
+    return modified_feed_url(os.environ.get('BASE_URL', 'http://localhost:8000'),
+                             slug, key)
 
 
 @api.route('/feeds', methods=['GET'])
@@ -467,45 +466,28 @@ def import_opml():
 @api.route('/feeds/export-opml', methods=['GET'])
 @log_request
 def export_opml():
-    """Export all podcast feeds as an OPML 2.0 file."""
+    """Export all podcast feeds as an OPML 2.0 download (admin UI)."""
     mode = request.args.get('mode', 'original')
     if mode not in ('original', 'modified'):
         return error_response('mode must be "original" or "modified"', 400)
 
     db = get_database()
     podcasts = db.get_all_podcasts()
-
-    if mode == 'modified':
-        # Keyed while feed auth is enabled, so a re-import after enable or
-        # rotation subscribes apps with working URLs.
-        feed_auth_key = get_feed_auth_key(db)
-
-    opml = ET.Element('opml', version='2.0')
-    head = ET.SubElement(opml, 'head')
-    ET.SubElement(head, 'title').text = 'MinusPod Feeds'
-    body = ET.SubElement(opml, 'body')
-
-    for podcast in podcasts:
-        title = podcast.get('title') or podcast.get('slug', '')
-        if mode == 'modified':
-            feed_url = _public_feed_url(podcast['slug'], feed_auth_key)
-        else:
-            feed_url = podcast.get('source_url', '')
-        ET.SubElement(body, 'outline',
-                      type='rss',
-                      text=title,
-                      title=title,
-                      xmlUrl=feed_url)
-
-    xml_bytes = ET.tostring(opml, encoding='unicode', xml_declaration=False)
-    xml_output = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_bytes
+    # Keyed while feed auth is enabled, so a re-import after enable or
+    # rotation subscribes apps with working URLs.
+    base_url = os.environ.get('BASE_URL', 'http://localhost:8000')
+    xml_output = build_opml_xml(podcasts, mode, base_url, get_feed_auth_key(db))
 
     filename = 'minuspod-feeds.opml' if mode == 'original' else 'minuspod-feeds-modified.opml'
     logger.info(f"Exported {len(podcasts)} feeds as OPML (mode={mode})")
 
     return Response(
         xml_output,
-        mimetype='application/xml',
+        # octet-stream, not application/xml: iOS Safari/Files rewrites the
+        # download extension to match a recognized MIME type (.xml) and drops
+        # the .opml in Content-Disposition; octet-stream has no such mapping,
+        # so the .opml filename survives.
+        mimetype='application/octet-stream',
         headers={
             'Content-Disposition': f'attachment; filename="{filename}"'
         }

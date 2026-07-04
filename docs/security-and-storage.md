@@ -81,7 +81,16 @@ Settings > Data & Security > Authenticated Feeds locks this down with a single p
 
 Enabling or rotating the key changes every URL, so podcast apps must re-add your feeds. The OPML export (`mode=modified`) includes the key, which makes re-subscribing a two-step job: export, re-import in the app. Served feeds also rebuild themselves with the current key on their next authenticated fetch, and the "Regenerate feeds" button forces that for everything at once. Regenerating re-fetches each source feed and re-renders the RSS - it never re-processes episodes or touches stats.
 
-If you also run the Cloudflare WAF rule described above, nothing changes: the cover URL still ends in `.jpg` and query strings are not part of the matched path. The two layers stack - Cloudflare filters by client, the key gates by possession.
+### Getting the feeds into an app
+
+The OPML Export controls (Settings > Data Management) give two ways to move your subscriptions:
+
+- **Download file** saves an `.opml` you import from your device.
+- **Copy URL** copies a link the app can pull directly, for the many apps that support "import from URL." The link points at a key-gated route on the feed domain (`/opml/modified.opml?key=...`), so it only appears when authenticated feeds is on, and a request without the key 404s.
+
+Both are offered for modified feeds (MinusPod ad-free URLs) and original feeds (upstream source URLs).
+
+If you also run the Cloudflare WAF rule described above, the cover URL still ends in `.jpg` and query strings are not part of the matched path, so key-gated fetching is unaffected. One caveat for Copy URL: the `/opml/` path lives on the feed domain behind that rule, so an app fetching it needs to get past your UA/path filter. If a given app's import-from-URL is blocked, allow the `/opml/` path (or that app's user agent) in the rule. The two layers stack - Cloudflare filters by client, the key gates by possession.
 
 ## Data storage
 

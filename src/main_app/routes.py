@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import secrets
 import time
 from datetime import datetime, timezone
 from functools import wraps
@@ -41,7 +42,9 @@ from main_app.shared_state import permanently_failed_warned as _permanently_fail
 # the positional 4-tuple from _get_components() that the audit flagged
 # as silently break-on-reorder.
 from main_app import db, storage, rss_parser, status_service
-from main_app.feed_auth import active_feed_key, require_feed_key
+from main_app.feed_auth import KEY_RE, active_feed_key, require_feed_key
+from utils.http import client_ip
+from utils.opml import build_opml_xml
 
 # Resolved once at registration time
 STATIC_DIR = None
@@ -485,6 +488,37 @@ def register_routes(app):
         response = Response(json.dumps(chapters), mimetype='application/json+chapters')
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
+
+    @app.route('/opml/<mode>.opml')
+    @log_request_detailed
+    def serve_opml(mode):
+        """Serve the feed list as OPML for podcast apps' import-from-URL.
+
+        App-level (public feed domain). The auth is inlined (not the shared
+        @require_feed_key) on purpose: this route must 404 when feed auth is
+        off, not serve keyless like the RSS routes. active_feed_key is read
+        ONCE and drives everything, so an enable/disable toggle mid-request
+        can never let a keyless caller reach the keyed feed list.
+        """
+        if mode not in ('modified', 'original'):
+            abort(404)
+        key = active_feed_key(db)  # None when feed auth off or no key stored
+        if not key:
+            abort(404)
+        supplied = request.args.get('key') or ''
+        # KEY_RE prefilter: compare_digest raises on non-ASCII input.
+        if not (KEY_RE.fullmatch(supplied)
+                and secrets.compare_digest(supplied, key)):
+            feed_logger.warning(
+                f"GET {request.path} 401 no auth key provided or is invalid "
+                f"[{client_ip()}]")
+            abort(401)
+        base_url = os.getenv('BASE_URL', 'http://localhost:8000')
+        xml = build_opml_xml(db.get_all_podcasts(), mode, base_url, key)
+        feed_logger.info(f"Served OPML via URL (mode={mode})")
+        # mimetype (not content_type): Werkzeug appends charset=utf-8 for
+        # text/*; passing the charset here too would double it.
+        return Response(xml, mimetype='text/xml')
 
     @app.route('/<slug>/cover-minuspod.jpg')
     @app.route('/<slug>/cover-minuspod-<token>.jpg')
