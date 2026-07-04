@@ -69,6 +69,8 @@ class _Template:
     cue_type: str
     role: str
     score_threshold: Optional[float] = None  # per-template override; None = use instance
+    eff_threshold: float = 0.0   # precomputed: score_threshold if set, else instance threshold
+    pick_floor: float = 0.0      # precomputed: min(eff_threshold, near_miss_floor) or eff_threshold
 
 
 class AudioCueTemplateMatcher:
@@ -83,6 +85,7 @@ class AudioCueTemplateMatcher:
         formant_lo_hz: float = FORMANT_LO_HZ,
         formant_hi_hz: float = FORMANT_HI_HZ,
         near_miss_floor: Optional[float] = None,
+        ignore_per_template_thresholds: bool = False,
     ):
         self.score_threshold = score_threshold
         self.max_matches_per_template = max_matches_per_template
@@ -127,7 +130,11 @@ class AudioCueTemplateMatcher:
                 continue
             cue_type = row.get('cue_type') or AUDIO_CUE_TYPE_DEFAULT
             raw_thr = row.get('score_threshold')
-            per_tpl_threshold = float(raw_thr) if raw_thr is not None else None
+            per_tpl_threshold = (None if ignore_per_template_thresholds
+                                 else (float(raw_thr) if raw_thr is not None else None))
+            eff_thr = per_tpl_threshold if per_tpl_threshold is not None else score_threshold
+            pick_flr = (min(eff_thr, near_miss_floor)
+                        if near_miss_floor is not None else eff_thr)
             self._templates.append(_Template(
                 template_id=int(row['id']),
                 label=row.get('label') or f"template-{row['id']}",
@@ -137,6 +144,8 @@ class AudioCueTemplateMatcher:
                 cue_type=cue_type,
                 role=audio_cue_type_role(cue_type),
                 score_threshold=per_tpl_threshold,
+                eff_threshold=eff_thr,
+                pick_floor=pick_flr,
             ))
 
     @property
@@ -252,12 +261,9 @@ class AudioCueTemplateMatcher:
         # whether to lower the threshold or remark the cue.
         for tpl in self._templates:
             peak = per_template_peak_score.get(tpl.template_id, 0.0)
-            eff_threshold = (tpl.score_threshold
-                             if tpl.score_threshold is not None
-                             else self.score_threshold)
             logger.info(
                 f"Cue template {tpl.template_id} ({tpl.label!r}): "
-                f"peak score {peak:.3f} vs threshold {eff_threshold:.3f}, "
+                f"peak score {peak:.3f} vs threshold {tpl.eff_threshold:.3f}, "
                 f"{match_counts[tpl.template_id]} match(es)"
             )
         logger.info(
@@ -291,17 +297,8 @@ class AudioCueTemplateMatcher:
     ) -> None:
         hop_s = FRAME_HOP_MS / 1000.0
         for tpl in self._templates:
-            # Effective match threshold: per-template overrides instance when set.
-            eff_threshold = (tpl.score_threshold
-                             if tpl.score_threshold is not None
-                             else self.score_threshold)
-            # Peak-pick floor: lowest of eff_threshold and near_miss_floor so
-            # sub-threshold near-misses are still surfaced when near_miss_floor
-            # is active (especially important when per-template lowers the bar).
-            if self.near_miss_floor is not None:
-                pick_floor = min(eff_threshold, self.near_miss_floor)
-            else:
-                pick_floor = eff_threshold
+            eff_threshold = tpl.eff_threshold
+            pick_floor = tpl.pick_floor
             if tpl.mfcc.shape[1] != chunk_mfcc.shape[1]:
                 logger.warning(
                     f"Template {tpl.template_id} n_coeffs={tpl.mfcc.shape[1]} "
