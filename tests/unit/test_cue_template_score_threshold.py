@@ -27,6 +27,7 @@ import pytest
 
 from audio_analysis.cue_features import N_COEFFS, serialize_mfcc
 from audio_analysis.cue_template_matcher import AudioCueTemplateMatcher
+import api.cue_templates as ct_api
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +307,6 @@ def test_update_cue_template_no_score_threshold_arg_leaves_column_unchanged(temp
 
 def test_template_to_meta_dict_includes_score_threshold():
     """_template_to_meta_dict must emit scoreThreshold (camelCase)."""
-    import importlib
-    import unittest.mock as mock
-
     # Minimal row dict with score_threshold set
     row = {
         'id': 1,
@@ -330,10 +328,6 @@ def test_template_to_meta_dict_includes_score_threshold():
         'score_threshold': 0.72,
     }
 
-    # Import _template_to_meta_dict via the API module
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
-    # The function uses row.keys() so use a real dict
-    import api.cue_templates as ct_api
     result = ct_api._template_to_meta_dict(row)
     assert 'scoreThreshold' in result
     assert result['scoreThreshold'] == pytest.approx(0.72)
