@@ -273,6 +273,11 @@ function HistoryPage() {
               >
                 {entry.episodeTitle}
               </Link>
+              {entry.status === 'failed' && entry.errorMessage && (
+                <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded p-2 mb-3 break-words">
+                  <strong>Error:</strong> {entry.errorMessage}
+                </div>
+              )}
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <span>{formatDate(entry.processedAt)}</span>
                 <span>{formatDuration(entry.processingDurationSeconds)}</span>
@@ -334,6 +339,11 @@ function HistoryPage() {
                       >
                         {entry.episodeTitle}
                       </Link>
+                      {entry.status === 'failed' && entry.errorMessage && (
+                        <span className="text-xs text-red-500 block max-w-[300px] truncate mt-1 font-mono" title={entry.errorMessage}>
+                          Error: {entry.errorMessage}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                       {formatDate(entry.processedAt)}
