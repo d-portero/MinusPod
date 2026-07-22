@@ -1788,21 +1788,20 @@ def _handle_processing_failure(slug, episode_id, episode_title, podcast_name,
     rate_limited = is_rate_limit_error(error)
 
     if transient:
-        if rate_limited:
-            new_retry_count = current_retry
-            new_status = EpisodeStatus.FAILED.value
-            audio_logger.info(
-                f"[{slug}:{episode_id}] Rate-limited, will retry without incrementing "
-                f"retry_count (currently {current_retry}/{MAX_EPISODE_RETRIES})"
-            )
+        new_retry_count = current_retry + 1
+        if new_retry_count >= MAX_EPISODE_RETRIES:
+            new_status = EpisodeStatus.PERMANENTLY_FAILED.value
+            audio_logger.warning(f"[{slug}:{episode_id}] Max retries reached ({MAX_EPISODE_RETRIES}), marking as permanently failed")
         else:
-            new_retry_count = current_retry + 1
-            if new_retry_count >= MAX_EPISODE_RETRIES:
-                new_status = EpisodeStatus.PERMANENTLY_FAILED.value
-                audio_logger.warning(f"[{slug}:{episode_id}] Max retries reached ({MAX_EPISODE_RETRIES}), marking as permanently failed")
+            new_status = EpisodeStatus.FAILED.value
+            if rate_limited:
+                audio_logger.info(
+                    f"[{slug}:{episode_id}] Rate-limited, will retry (attempt {new_retry_count}/{MAX_EPISODE_RETRIES})"
+                )
             else:
-                new_status = EpisodeStatus.FAILED.value
-                audio_logger.info(f"[{slug}:{episode_id}] Transient error, will retry (attempt {new_retry_count}/{MAX_EPISODE_RETRIES})")
+                audio_logger.info(
+                    f"[{slug}:{episode_id}] Transient error, will retry (attempt {new_retry_count}/{MAX_EPISODE_RETRIES})"
+                )
     else:
         new_status = EpisodeStatus.PERMANENTLY_FAILED.value
         new_retry_count = current_retry
