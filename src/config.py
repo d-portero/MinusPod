@@ -675,8 +675,8 @@ PROVIDERS_NON_ANTHROPIC = ('openai-compatible', 'ollama')
 # ============================================================
 # Default LLM Models
 # ============================================================
-DEFAULT_AD_DETECTION_MODEL = "gemini-2.5-flash"
-DEFAULT_CHAPTERS_MODEL = "gemini-2.5-flash"
+DEFAULT_AD_DETECTION_MODEL = "models/gemini-1.5-flash"
+DEFAULT_CHAPTERS_MODEL = "models/gemini-1.5-flash"
 
 # ============================================================
 # User-Agent Strings
