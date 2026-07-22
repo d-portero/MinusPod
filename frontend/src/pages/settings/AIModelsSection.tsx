@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { ClaudeModel } from '../../api/types';
 import CollapsibleSection from '../../components/CollapsibleSection';
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -28,9 +29,24 @@ function AIModelsSection({
   onRefresh,
   refreshIsPending,
 }: AIModelsSectionProps) {
-  // A saved model id missing from the live catalog (wrong provider for
-  // the stored tag, renamed model, transient probe failure) would render
-  // the <select> blank, which users read as "the setting was reset".
+  const isOrphan = (value: string) => {
+    if (!value || !models) return false;
+    return !models.some((m) => m.id === value);
+  };
+
+  const [customModel, setCustomModel] = useState(false);
+  const [customVerificationModel, setCustomVerificationModel] = useState(false);
+  const [customChaptersModel, setCustomChaptersModel] = useState(false);
+
+  // Sync state when models load or if they are orphans
+  useEffect(() => {
+    if (models) {
+      if (isOrphan(selectedModel)) setCustomModel(true);
+      if (isOrphan(verificationModel)) setCustomVerificationModel(true);
+      if (isOrphan(chaptersModel)) setCustomChaptersModel(true);
+    }
+  }, [models, selectedModel, verificationModel, chaptersModel]);
+
   const renderOrphan = (value: string) => {
     if (!value || !models) return null;
     if (models.some((m) => m.id === value)) return null;
@@ -74,66 +90,126 @@ function AIModelsSection({
 
       <div className="space-y-4">
         <div>
-          <label htmlFor="model" className="block text-sm font-medium text-foreground mb-2">
-            Ad Detection Model
-          </label>
-          <select
-            id="model"
-            value={selectedModel}
-            onChange={(e) => onSelectedModelChange(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
-          >
-            {renderOrphan(selectedModel)}
-            {models?.map((model) => (
-              <option key={model.id} value={model.id}>
-                {formatModelLabel(model)}
-              </option>
-            ))}
-          </select>
+          <div className="flex justify-between items-center mb-2">
+            <label htmlFor="model" className="block text-sm font-medium text-foreground">
+              Ad Detection Model
+            </label>
+            <button
+              type="button"
+              onClick={() => setCustomModel(!customModel)}
+              className="text-xs text-primary hover:underline focus:outline-hidden"
+            >
+              {customModel ? "Select from list" : "Enter custom model ID"}
+            </button>
+          </div>
+          {customModel ? (
+            <input
+              type="text"
+              id="model"
+              value={selectedModel}
+              onChange={(e) => onSelectedModelChange(e.target.value)}
+              placeholder="e.g. models/gemini-1.5-flash"
+              className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring text-sm"
+            />
+          ) : (
+            <select
+              id="model"
+              value={selectedModel}
+              onChange={(e) => onSelectedModelChange(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring text-sm"
+            >
+              {renderOrphan(selectedModel)}
+              {models?.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {formatModelLabel(model)}
+                </option>
+              ))}
+            </select>
+          )}
           <p className="mt-1 text-sm text-muted-foreground">
             Primary model for analyzing transcripts and detecting ads. Set the model here; the OPENAI_MODEL env var only seeds the initial value on first startup.
           </p>
         </div>
 
         <div>
-          <label htmlFor="verificationModel" className="block text-sm font-medium text-foreground mb-2">
-            Verification Model
-          </label>
-          <select
-            id="verificationModel"
-            value={verificationModel}
-            onChange={(e) => onVerificationModelChange(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
-          >
-            {renderOrphan(verificationModel)}
-            {models?.map((model) => (
-              <option key={model.id} value={model.id}>
-                {formatModelLabel(model)}
-              </option>
-            ))}
-          </select>
+          <div className="flex justify-between items-center mb-2">
+            <label htmlFor="verificationModel" className="block text-sm font-medium text-foreground">
+              Verification Model
+            </label>
+            <button
+              type="button"
+              onClick={() => setCustomVerificationModel(!customVerificationModel)}
+              className="text-xs text-primary hover:underline focus:outline-hidden"
+            >
+              {customVerificationModel ? "Select from list" : "Enter custom model ID"}
+            </button>
+          </div>
+          {customVerificationModel ? (
+            <input
+              type="text"
+              id="verificationModel"
+              value={verificationModel}
+              onChange={(e) => onVerificationModelChange(e.target.value)}
+              placeholder="e.g. models/gemini-1.5-flash"
+              className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring text-sm"
+            />
+          ) : (
+            <select
+              id="verificationModel"
+              value={verificationModel}
+              onChange={(e) => onVerificationModelChange(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring text-sm"
+            >
+              {renderOrphan(verificationModel)}
+              {models?.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {formatModelLabel(model)}
+                </option>
+              ))}
+            </select>
+          )}
           <p className="mt-1 text-sm text-muted-foreground">
             Re-runs detection on processed audio to catch missed ads (can differ for cost optimization)
           </p>
         </div>
 
         <div>
-          <label htmlFor="chaptersModel" className="block text-sm font-medium text-foreground mb-2">
-            Chapters Model
-          </label>
-          <select
-            id="chaptersModel"
-            value={chaptersModel}
-            onChange={(e) => onChaptersModelChange(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
-          >
-            {renderOrphan(chaptersModel)}
-            {models?.map((model) => (
-              <option key={model.id} value={model.id}>
-                {formatModelLabel(model)}
-              </option>
-            ))}
-          </select>
+          <div className="flex justify-between items-center mb-2">
+            <label htmlFor="chaptersModel" className="block text-sm font-medium text-foreground">
+              Chapters Model
+            </label>
+            <button
+              type="button"
+              onClick={() => setCustomChaptersModel(!customChaptersModel)}
+              className="text-xs text-primary hover:underline focus:outline-hidden"
+            >
+              {customChaptersModel ? "Select from list" : "Enter custom model ID"}
+            </button>
+          </div>
+          {customChaptersModel ? (
+            <input
+              type="text"
+              id="chaptersModel"
+              value={chaptersModel}
+              onChange={(e) => onChaptersModelChange(e.target.value)}
+              placeholder="e.g. models/gemini-1.5-flash"
+              className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring text-sm"
+            />
+          ) : (
+            <select
+              id="chaptersModel"
+              value={chaptersModel}
+              onChange={(e) => onChaptersModelChange(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-input bg-background text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring text-sm"
+            >
+              {renderOrphan(chaptersModel)}
+              {models?.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {formatModelLabel(model)}
+                </option>
+              ))}
+            </select>
+          )}
           <p className="mt-1 text-sm text-muted-foreground">
             Chapter title generation and topic detection (smaller/cheaper models work well)
           </p>
