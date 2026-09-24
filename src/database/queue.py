@@ -333,6 +333,7 @@ class QueueMixin:
                      AND datetime(q.updated_at) > datetime('now', '-' || ? || ' hours')
                      AND datetime(q.updated_at) < datetime('now',
                          CASE
+                             WHEN q.error_message LIKE '%quota%' OR q.error_message LIKE '%Resource has been exhausted%' THEN '-4 hours'
                              WHEN q.attempts <= 1 THEN '-5 minutes'
                              WHEN q.attempts = 2 THEN '-15 minutes'
                              WHEN q.attempts = 3 THEN '-30 minutes'
